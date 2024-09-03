@@ -118,6 +118,7 @@ class Predictor(BasePredictor):
             self.pipe.set_adapters(loras, adapter_weights=lora_weights)
             self.pipe.fuse_lora(adapter_names=loras)
 
+        print("active adapters:", self.pipe.get_active_adapters())
         use_controlnet = True
         if use_controlnet and canny_image:
             canny_input = Image.open(canny_image)
