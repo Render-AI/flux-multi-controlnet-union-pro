@@ -1,11 +1,8 @@
 from cog import BasePredictor, Input, Path
-import os
-import time
 import torch
-import subprocess
 from PIL import Image
 from diffusers import (
-    FluxControlNetPipeline,
+    FluxPipeline,
     FluxControlNetModel,
     DDIMScheduler,
     DPMSolverMultistepScheduler,
@@ -22,16 +19,14 @@ from diffusers import (
     DPMSolverSinglestepScheduler,
     FlowMatchEulerDiscreteScheduler
 )
-from diffusers.models import FluxMultiControlNetModel
+from controlnet_aux import CannyDetector, MidasDetector
+from huggingface_hub import hf_hub_download
 
-MODEL_CACHE = "FLUX.1-dev"
 MODEL_NAME = 'black-forest-labs/FLUX.1-dev'
-CONTROLNET_CACHE = "FLUX.1-dev-ControlNet-Union-Pro"
-CONTROLNET_MODEL_UNION = 'Shakker-Labs/FLUX.1-dev-ControlNet-Union-Pro'
-MODEL_URL = "https://weights.replicate.delivery/default/black-forest-labs/FLUX.1-dev/files.tar"
-CONTROLNET_URL = "https://weights.replicate.delivery/default/shakker-labs/FLUX.1-dev-ControlNet-Union-Pro/model.tar"
-
-CONTROL_TYPES = ["canny", "tile", "depth", "blur", "pose", "gray", "low-quality"]
+CANNY_CONTROLNET_MODEL = "XLabs-AI/flux-controlnet-canny-v3"
+HED_CONTROLNET_MODEL = "XLabs-AI/flux-controlnet-hed-v3"
+LORA_REPO_NAME = "ByteDance/Hyper-SD"
+LORA_CKPT_NAME = "Hyper-FLUX.1-dev-8steps-lora.safetensors"
 
 SCHEDULERS = {
     "FlowMatchEulerDiscreteScheduler": FlowMatchEulerDiscreteScheduler,
@@ -50,53 +45,44 @@ SCHEDULERS = {
     "DPMSolverSinglestep": DPMSolverSinglestepScheduler,
 }
 
-def download_weights(url, dest):
-    start = time.time()
-    print("downloading url: ", url)
-    print("downloading to: ", dest)
-    subprocess.check_call(["pget", "-xf", url, dest], close_fds=False)
-    print("downloading took: ", time.time() - start)
-
 class Predictor(BasePredictor):
     def setup(self) -> None:
         """Load the model into memory to make running multiple predictions efficient"""
-        if not os.path.exists(CONTROLNET_CACHE):
-            download_weights(CONTROLNET_URL, CONTROLNET_CACHE)
-        if not os.path.exists(MODEL_CACHE):
-            download_weights(MODEL_URL, ".")
-        
-        controlnet_union = FluxControlNetModel.from_pretrained(
-            CONTROLNET_CACHE,
-            torch_dtype=torch.bfloat16
+        self.canny_controlnet = FluxControlNetModel.from_pretrained(
+            CANNY_CONTROLNET_MODEL,
+            torch_dtype=torch.float16
         )
-        controlnet = FluxMultiControlNetModel([controlnet_union])
-        self.pipe = FluxControlNetPipeline.from_pretrained(
-            MODEL_CACHE,
-            controlnet=controlnet,
-            torch_dtype=torch.bfloat16
-        ).to("cuda")
+        self.hed_controlnet = FluxControlNetModel.from_pretrained(
+            HED_CONTROLNET_MODEL,
+            torch_dtype=torch.float16
+        )
+        self.pipe = FluxPipeline.from_pretrained(
+            MODEL_NAME,
+            torch_dtype=torch.float16
+        )
+        
+        # Load and fuse LoRA weights
+        lora_path = hf_hub_download(LORA_REPO_NAME, LORA_CKPT_NAME)
+        self.pipe.load_lora_weights(lora_path)
+        self.pipe.fuse_lora(lora_scale=0.125)
+        
+        self.pipe.to("cuda")
+        
+        self.canny_detector = CannyDetector()
+        self.midas_detector = MidasDetector.from_pretrained("lllyasviel/Annotators")
 
     def predict(
         self,
-        prompt: str = Input(description="Input prompt", default="A bohemian-style female travel blogger with sun-kissed skin and messy beach waves"),
-        guidance_scale: float = Input(description="Guidance scale", default=3.5, ge=0, le=20),
-        steps: int = Input(description="Number of steps", default=20, ge=1, le=50),
+        prompt: str = Input(description="Input prompt", default="A girl in city, 25 years old, cool, futuristic"),
+        canny_image: Path = Input(description="Input image for Canny ControlNet", default=None),
+        hed_image: Path = Input(description="Input image for HED ControlNet", default=None),
+        guidance_scale: float = Input(description="Guidance scale", default=3.5, ge=0, le=5),
+        steps: int = Input(description="Number of inference steps", default=8, ge=1, le=50),
         seed: int = Input(description="Set a seed for reproducibility. Random by default.", default=None),
-        scheduler: str = Input(description="Scheduler to use", choices=list(SCHEDULERS.keys()), default="FlowMatchEulerDiscreteScheduler"),
-        canny_image: Path = Input(description="Canny control image", default=None),
-        tile_image: Path = Input(description="Tile control image", default=None),
-        depth_image: Path = Input(description="Depth control image", default=None),
-        blur_image: Path = Input(description="Blur control image", default=None),
-        pose_image: Path = Input(description="Pose control image", default=None),
-        gray_image: Path = Input(description="Gray control image", default=None),
-        low_quality_image: Path = Input(description="Low-quality control image", default=None),
-        canny_strength: float = Input(description="Canny ControlNet strength", default=0.4, ge=0, le=1),
-        tile_strength: float = Input(description="Tile ControlNet strength", default=0.4, ge=0, le=1),
-        depth_strength: float = Input(description="Depth ControlNet strength", default=0.2, ge=0, le=1),
-        blur_strength: float = Input(description="Blur ControlNet strength", default=0.4, ge=0, le=1),
-        pose_strength: float = Input(description="Pose ControlNet strength", default=0.4, ge=0, le=1),
-        gray_strength: float = Input(description="Gray ControlNet strength", default=0.4, ge=0, le=1),
-        low_quality_strength: float = Input(description="Low-quality ControlNet strength", default=0.4, ge=0, le=1)
+        # scheduler: str = Input(description="Scheduler to use", choices=list(SCHEDULERS.keys()), default="FlowMatchEulerDiscreteScheduler"),
+        canny_strength: float = Input(description="Canny ControlNet strength", default=0.6, ge=0, le=1),
+        hed_strength: float = Input(description="HED ControlNet strength", default=0.6, ge=0, le=1),
+        use_controlnet: bool = Input(description="Whether to use ControlNet", default=False),
     ) -> Path:
         """Run a single prediction on the model"""
         if seed is None:
@@ -105,53 +91,61 @@ class Predictor(BasePredictor):
         generator = torch.Generator("cuda").manual_seed(seed)
 
         # Set the scheduler
-        self.pipe.scheduler = SCHEDULERS[scheduler].from_config(self.pipe.scheduler.config)
+        # self.pipe.scheduler = SCHEDULERS[scheduler].from_config(self.pipe.scheduler.config)
 
-        control_images = []
-        control_modes = []
-        control_strengths = []
+        if use_controlnet:
+            control_images = []
+            control_nets = []
+            conditioning_scales = []
 
-        image_inputs = [
-            (canny_image, 0, canny_strength),
-            (tile_image, 1, tile_strength),
-            (depth_image, 2, depth_strength),
-            (blur_image, 3, blur_strength),
-            (pose_image, 4, pose_strength),
-            (gray_image, 5, gray_strength),
-            (low_quality_image, 6, low_quality_strength)
-        ]
+            reference_size = None
 
-        reference_size = None
-
-        for img_path, mode, strength in image_inputs:
-            if img_path:
-                img = Image.open(img_path)
+            if canny_image:
+                canny_input = Image.open(canny_image)
                 if reference_size is None:
-                    # Set the reference size based on the first provided image
-                    width, height = img.size
-                    reference_size = (width // 8 * 8, height // 8 * 8)
-                    
-                # Resize the image to match the reference size
-                img = img.resize(reference_size)
-                control_images.append(img)
-                control_modes.append(mode)
-                control_strengths.append(strength)
+                    reference_size = canny_input.size
+                else:
+                    canny_input = canny_input.resize(reference_size)
+                canny_processed = self.canny_detector(canny_input)
+                control_images.append(canny_processed)
+                control_nets.append(self.canny_controlnet)
+                conditioning_scales.append(canny_strength)
 
-        if not control_images:
-            raise ValueError("At least one control image must be provided")
+            if hed_image:
+                hed_input = Image.open(hed_image)
+                if reference_size is None:
+                    reference_size = hed_input.size
+                else:
+                    hed_input = hed_input.resize(reference_size)
+                depth_map = self.midas_detector(hed_input)
+                control_images.append(depth_map)
+                control_nets.append(self.hed_controlnet)
+                conditioning_scales.append(hed_strength)
 
-        image = self.pipe(
-            prompt,
-            control_image=control_images,
-            control_mode=control_modes,
-            width=reference_size[0],
-            height=reference_size[1],
-            controlnet_conditioning_scale=control_strengths,
-            num_inference_steps=steps,
-            guidance_scale=guidance_scale,
-            generator=generator
-        ).images[0]
+            if not control_images:
+                raise ValueError("At least one control image must be provided when use_controlnet is True")
+
+            # Update the pipeline with the selected ControlNets
+            self.pipe.controlnet = control_nets
+
+            generated_image = self.pipe(
+                prompt,
+                control_image=control_images,
+                controlnet_conditioning_scale=conditioning_scales,
+                width=reference_size[0] if reference_size else 512,
+                height=reference_size[1] if reference_size else 512,
+                num_inference_steps=steps,
+                guidance_scale=guidance_scale,
+                generator=generator
+            ).images[0]
+        else:
+            generated_image = self.pipe(
+                prompt,
+                num_inference_steps=steps,
+                guidance_scale=guidance_scale,
+                generator=generator
+            ).images[0]
 
         output_path = f"/tmp/output.png"
-        image.save(output_path)
+        generated_image.save(output_path)
         return Path(output_path)
