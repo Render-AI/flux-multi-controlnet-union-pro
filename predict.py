@@ -84,18 +84,17 @@ class Predictor(BasePredictor):
         self,
         prompt: str = Input(description="Input prompt", default="A girl in city, 25 years old, cool, futuristic"),
         canny_image: Path = Input(description="Input image for Canny ControlNet", default=None),
-        guidance_scale: float = Input(description="Guidance scale", default=3.5, ge=0, le=5),
+        guidance_scale: float = Input(description="Guidance scale", default=3.5, ge=0, le=20),
         steps: int = Input(description="Number of inference steps", default=8, ge=1, le=50),
         seed: int = Input(description="Set a seed for reproducibility. Random by default.", default=None),
-        canny_strength: float = Input(description="Canny ControlNet strength", default=0.6, ge=0, le=1),
-        use_controlnet: bool = Input(description="Whether to use ControlNet", default=False),
+        canny_strength: float = Input(description="Canny ControlNet strength", default=0.6, ge=0, le=2),
     ) -> Path:
         """Run a single prediction on the model"""
         if seed is None:
             seed = int.from_bytes(os.urandom(2), "big")
         print(f"Using seed: {seed}")
         generator = torch.Generator("cuda").manual_seed(seed)
-
+        use_controlnet= True
         if use_controlnet and canny_image:
             canny_input = Image.open(canny_image)
             canny_processed = self.canny_detector(canny_input)
@@ -104,8 +103,8 @@ class Predictor(BasePredictor):
                 prompt,
                 control_image=canny_processed,
                 controlnet_conditioning_scale=canny_strength,
-                # width=canny_input.size[0],
-                # height=canny_input.size[1],
+                width=canny_input.size[0],
+                height=canny_input.size[1],
                 num_inference_steps=steps,
                 guidance_scale=guidance_scale,
                 generator=generator
