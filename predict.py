@@ -28,8 +28,12 @@ from huggingface_hub import hf_hub_download
 MODEL_CACHE = "FLUX.1-dev"
 MODEL_NAME = 'black-forest-labs/FLUX.1-dev'
 MODEL_URL = "https://weights.replicate.delivery/default/black-forest-labs/FLUX.1-dev/files.tar"
-LORA_REPO_NAME = "ByteDance/Hyper-SD"
-LORA_CKPT_NAME = "Hyper-FLUX.1-dev-8steps-lora.safetensors"
+HYPERFLEX_LORA_REPO_NAME = "ByteDance/Hyper-SD"
+HYPERFLEX_LORA_CKPT_NAME = "Hyper-FLUX.1-dev-8steps-lora.safetensors"
+ADD_DETAILS_LORA_REPO = "Shakker-Labs/FLUX.1-dev-LoRA-blended-realistic-illustration"
+ADD_DETAILS_LORA_CKPT_NAME = "FLUX.1-dev-LoRA-add-details.safetensors"
+REALISM_LORA_REPO = "XLabs-AI/flux-RealismLora"
+REALISM_LORA_CKPT_NAME = "lora.safetensors"
 
 SCHEDULERS = {
     "FlowMatchEulerDiscreteScheduler": FlowMatchEulerDiscreteScheduler,
@@ -57,7 +61,6 @@ def download_weights(url, dest):
 
 class Predictor(BasePredictor):
     def setup(self) -> None:
-        """Load the model into memory to make running multiple predictions efficient"""
         if not os.path.exists(MODEL_CACHE):
             download_weights(MODEL_URL, ".")
 
@@ -71,14 +74,13 @@ class Predictor(BasePredictor):
             torch_dtype=torch.float16
         )
         
-        # Load and fuse LoRA weights
-        lora_path = hf_hub_download(LORA_REPO_NAME, LORA_CKPT_NAME)
-        self.pipe.load_lora_weights(lora_path)
-        self.pipe.fuse_lora(lora_scale=0.125)
-        
         self.pipe.to("cuda")
-        
         self.canny_detector = CannyDetector()
+
+        # Download LoRA weights
+        self.hyperflex_lora_path = hf_hub_download(HYPERFLEX_LORA_REPO_NAME, HYPERFLEX_LORA_CKPT_NAME)
+        self.add_details_lora_path = hf_hub_download(ADD_DETAILS_LORA_REPO, ADD_DETAILS_LORA_CKPT_NAME)
+        self.realism_lora_path = hf_hub_download(REALISM_LORA_REPO, REALISM_LORA_CKPT_NAME)
 
     def predict(
         self,
@@ -88,13 +90,35 @@ class Predictor(BasePredictor):
         steps: int = Input(description="Number of inference steps", default=8, ge=1, le=50),
         seed: int = Input(description="Set a seed for reproducibility. Random by default.", default=None),
         canny_strength: float = Input(description="Canny ControlNet strength", default=0.6, ge=0, le=2),
+        hyperflex_lora_weight: float = Input(description="HyperFlex LoRA weight", default=0.125, ge=0, le=1),
+        add_details_lora_weight: float = Input(description="Add Details LoRA weight", default=0, ge=0, le=1),
+        realism_lora_weight: float = Input(description="Realism LoRA weight", default=0, ge=0, le=1),
     ) -> Path:
-        """Run a single prediction on the model"""
         if seed is None:
             seed = int.from_bytes(os.urandom(2), "big")
         print(f"Using seed: {seed}")
         generator = torch.Generator("cuda").manual_seed(seed)
-        use_controlnet= True
+
+        lora_weights = []
+        loras = []
+
+        if hyperflex_lora_weight > 0:
+            lora_weights.append(hyperflex_lora_weight)
+            loras.append(self.hyperflex_lora_path)
+        
+        if add_details_lora_weight > 0:
+            lora_weights.append(add_details_lora_weight)
+            loras.append(self.add_details_lora_path)
+        
+        if realism_lora_weight > 0:
+            lora_weights.append(realism_lora_weight)
+            loras.append(self.realism_lora_path)
+
+        if loras:
+            self.pipe.set_adapters(loras, adapter_weights=lora_weights)
+            self.pipe.fuse_lora(adapter_names=loras)
+
+        use_controlnet = True
         if use_controlnet and canny_image:
             canny_input = Image.open(canny_image)
             canny_processed = self.canny_detector(canny_input)
@@ -119,6 +143,10 @@ class Predictor(BasePredictor):
                 generator=generator
             ).images[0]
 
+        if loras:
+            self.pipe.unfuse_lora()
+
         output_path = f"/tmp/output.png"
         generated_image.save(output_path)
         return Path(output_path)
+
