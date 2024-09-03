@@ -1,9 +1,11 @@
 from cog import BasePredictor, Input, Path
 import os
+import time
+import subprocess
 import torch
 from PIL import Image
 from diffusers import (
-    FluxPipeline,
+    FluxControlNetPipeline,
     FluxControlNetModel,
     DDIMScheduler,
     DPMSolverMultistepScheduler,
@@ -23,7 +25,9 @@ from diffusers import (
 from controlnet_aux import CannyDetector
 from huggingface_hub import hf_hub_download
 
+MODEL_CACHE = "FLUX.1-dev"
 MODEL_NAME = 'black-forest-labs/FLUX.1-dev'
+MODEL_URL = "https://weights.replicate.delivery/default/black-forest-labs/FLUX.1-dev/files.tar"
 LORA_REPO_NAME = "ByteDance/Hyper-SD"
 LORA_CKPT_NAME = "Hyper-FLUX.1-dev-8steps-lora.safetensors"
 
@@ -44,15 +48,26 @@ SCHEDULERS = {
     "DPMSolverSinglestep": DPMSolverSinglestepScheduler,
 }
 
+def download_weights(url, dest):
+    start = time.time()
+    print("downloading url: ", url)
+    print("downloading to: ", dest)
+    subprocess.check_call(["pget", "-xf", url, dest], close_fds=False)
+    print("downloading took: ", time.time() - start)
+
 class Predictor(BasePredictor):
     def setup(self) -> None:
         """Load the model into memory to make running multiple predictions efficient"""
+        if not os.path.exists(MODEL_CACHE):
+            download_weights(MODEL_URL, ".")
+
         self.canny_controlnet = FluxControlNetModel.from_pretrained(
             "InstantX/FLUX.1-dev-Controlnet-Canny-alpha",
             torch_dtype=torch.float16
         )
-        self.pipe = FluxPipeline.from_pretrained(
-            MODEL_NAME,
+        self.pipe = FluxControlNetPipeline.from_pretrained(
+            MODEL_CACHE,
+            controlnet=self.canny_controlnet,
             torch_dtype=torch.float16
         )
         
@@ -84,9 +99,6 @@ class Predictor(BasePredictor):
         if use_controlnet and canny_image:
             canny_input = Image.open(canny_image)
             canny_processed = self.canny_detector(canny_input)
-
-            # Update the pipeline with the Canny ControlNet
-            self.pipe.controlnet = self.canny_controlnet
 
             generated_image = self.pipe(
                 prompt,
