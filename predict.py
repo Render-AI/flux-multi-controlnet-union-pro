@@ -114,6 +114,11 @@ class Predictor(BasePredictor):
         if realism_lora_weight > 0:
             lora_weights.append(realism_lora_weight)
             loras.append("realism")
+        
+        if loras:
+            print(loras)
+            self.pipe.set_adapters(loras, adapter_weights=lora_weights)
+            self.pipe.fuse_lora(adapter_names=loras)
 
         print("active adapters:", self.pipe.get_active_adapters())
         use_controlnet = True
