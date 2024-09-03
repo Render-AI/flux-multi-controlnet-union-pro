@@ -77,10 +77,11 @@ class Predictor(BasePredictor):
         self.pipe.to("cuda")
         self.canny_detector = CannyDetector()
 
-        # Download LoRA weights
-        self.hyperflex_lora_path = hf_hub_download(HYPERFLEX_LORA_REPO_NAME, HYPERFLEX_LORA_CKPT_NAME)
-        self.add_details_lora_path = hf_hub_download(ADD_DETAILS_LORA_REPO, ADD_DETAILS_LORA_CKPT_NAME)
-        self.realism_lora_path = hf_hub_download(REALISM_LORA_REPO, REALISM_LORA_CKPT_NAME)
+        # Load LoRA weights
+        self.pipe.load_lora_weights(HYPERFLEX_LORA_REPO_NAME, weight_name=HYPERFLEX_LORA_CKPT_NAME, adapter_name="hyperflex")
+        self.pipe.load_lora_weights(ADD_DETAILS_LORA_REPO, weight_name=ADD_DETAILS_LORA_CKPT_NAME, adapter_name="add_details")
+        self.pipe.load_lora_weights(REALISM_LORA_REPO, weight_name=REALISM_LORA_CKPT_NAME, adapter_name="realism")
+
 
     def predict(
         self,
@@ -104,19 +105,15 @@ class Predictor(BasePredictor):
 
         if hyperflex_lora_weight > 0:
             lora_weights.append(hyperflex_lora_weight)
-            loras.append(self.hyperflex_lora_path)
+            loras.append("hyperflex")
         
         if add_details_lora_weight > 0:
             lora_weights.append(add_details_lora_weight)
-            loras.append(self.add_details_lora_path)
+            loras.append("add_details")
         
         if realism_lora_weight > 0:
             lora_weights.append(realism_lora_weight)
-            loras.append(self.realism_lora_path)
-
-        if loras:
-            self.pipe.set_adapters(loras, adapter_weights=lora_weights)
-            self.pipe.fuse_lora(adapter_names=loras)
+            loras.append("realism")
 
         print("active adapters:", self.pipe.get_active_adapters())
         use_controlnet = True
