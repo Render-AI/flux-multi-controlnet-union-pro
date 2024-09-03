@@ -30,8 +30,8 @@ MODEL_NAME = 'black-forest-labs/FLUX.1-dev'
 MODEL_URL = "https://weights.replicate.delivery/default/black-forest-labs/FLUX.1-dev/files.tar"
 HYPERFLEX_LORA_REPO_NAME = "ByteDance/Hyper-SD"
 HYPERFLEX_LORA_CKPT_NAME = "Hyper-FLUX.1-dev-8steps-lora.safetensors"
-ADD_DETAILS_LORA_REPO = "Shakker-Labs/FLUX.1-dev-LoRA-blended-realistic-illustration"
-ADD_DETAILS_LORA_CKPT_NAME = "FLUX.1-dev-LoRA-add-details.safetensors"
+ADD_DETAILS_LORA_REPO = "Shakker-Labs/FLUX.1-dev-LoRA-add-details"
+ADD_DETAILS_LORA_CKPT_NAME = "FLUX-dev-lora-add_details.safetensors"
 REALISM_LORA_REPO = "XLabs-AI/flux-RealismLora"
 REALISM_LORA_CKPT_NAME = "lora.safetensors"
 
