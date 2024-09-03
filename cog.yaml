@@ -15,7 +15,7 @@ build:
     - "huggingface-hub==0.24.5"
     - "einops==0.8.0"
     - "pandas==2.2.2"
-    - "opencv-python==4.10.0.84"
+    - "opencv-contrib-python-headless==4.6.0.66"
     - "pillow==10.4.0"
     - "sentencepiece==0.2.0"
     - "numpy<2"
