@@ -102,10 +102,10 @@ class Predictor(BasePredictor):
 
             generated_image = self.pipe(
                 prompt,
-                control_image=[canny_processed],
-                controlnet_conditioning_scale=[canny_strength],
-                width=canny_input.size[0],
-                height=canny_input.size[1],
+                control_image=canny_processed,
+                controlnet_conditioning_scale=canny_strength,
+                # width=canny_input.size[0],
+                # height=canny_input.size[1],
                 num_inference_steps=steps,
                 guidance_scale=guidance_scale,
                 generator=generator
