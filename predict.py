@@ -76,9 +76,11 @@ class Predictor(BasePredictor):
             CONTROLNET_MODEL_UNION,
             torch_dtype=torch.float16
         )
-        
+
+        controlnet = FluxMultiControlNetModel([self.canny_controlnet, self.controlnet_union])
         self.pipe = FluxControlNetPipeline.from_pretrained(
             MODEL_CACHE,
+             controlnet=controlnet,
             torch_dtype=torch.float16
         )
         
