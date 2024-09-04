@@ -114,8 +114,8 @@ class Predictor(BasePredictor):
         hyperflex_lora_weight: float = Input(description="HyperFlex LoRA weight", default=0.125, ge=0, le=1),
         add_details_lora_weight: float = Input(description="Add Details LoRA weight", default=0, ge=0, le=1),
         realism_lora_weight: float = Input(description="Realism LoRA weight", default=0, ge=0, le=1),
-        widthh: int = Input(description="width", default=0, ge=412, le=5000),
-        heightt: int = Input(description="height", default=0, ge=412, le=5000),
+        widthh: int = Input(description="width", default=0, ge=0, le=5000),
+        heightt: int = Input(description="height", default=0, ge=0, le=5000),
     ) -> Path:
 
         if seed is None:
