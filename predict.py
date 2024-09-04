@@ -188,6 +188,7 @@ class Predictor(BasePredictor):
         # Configure the ControlNet based on the provided images
         if has_canny and not has_others:
             self.pipe.controlnet = FluxMultiControlNetModel([self.canny_controlnet])
+            control_modes = None
         elif has_canny and has_others:
             self.pipe.controlnet = FluxMultiControlNetModel([self.canny_controlnet, self.controlnet_union])
         elif not has_canny and has_others:
