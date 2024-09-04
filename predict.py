@@ -69,18 +69,20 @@ class Predictor(BasePredictor):
             download_weights(MODEL_URL, ".")
 
         self.canny_controlnet = FluxControlNetModel.from_pretrained(
-            CONTROLNET_CANNY,
-            torch_dtype=torch.float16
-        )
+                CONTROLNET_CANNY,
+                torch_dtype=torch.float16
+            )
         self.controlnet_union = FluxControlNetModel.from_pretrained(
             CONTROLNET_MODEL_UNION,
             torch_dtype=torch.float16
         )
 
-        controlnet = FluxMultiControlNetModel([self.canny_controlnet, self.controlnet_union])
+        # Always use FluxMultiControlNetModel
+        self.controlnet = FluxMultiControlNetModel([self.canny_controlnet, self.controlnet_union])
+        
         self.pipe = FluxControlNetPipeline.from_pretrained(
             MODEL_CACHE,
-             controlnet=controlnet,
+            controlnet=self.controlnet,
             torch_dtype=torch.float16
         )
         
@@ -149,7 +151,7 @@ class Predictor(BasePredictor):
 
 
         image_inputs = [
-            (canny_image, 0, canny_strength),
+            (canny_image, None, canny_strength),
             (tile_image, 1, tile_strength),
             (depth_image, 2, depth_strength),
             (blur_image, 3, blur_strength),
@@ -169,13 +171,11 @@ class Predictor(BasePredictor):
             if img_path:
                 img = Image.open(img_path)
                 if reference_size is None:
-                    # Set the reference size based on the first provided image
                     width, height = img.size
                     reference_size = (width // 8 * 8, height // 8 * 8)
                 
-                # Resize the image to match the reference size
                 img = img.resize(reference_size)
-                if mode == 0:  # Canny
+                if mode is None:  # Canny
                     img = self.canny_detector(img)
                     has_canny = True
                 else:
@@ -187,7 +187,7 @@ class Predictor(BasePredictor):
         if not control_images:
             raise ValueError("At least one control image must be provided")
 
-        # Configure the ControlNet based on the provided images
+        # Update the pipeline's controlnets based on the provided images
         if has_canny and not has_others:
             self.pipe.controlnet = FluxMultiControlNetModel([self.canny_controlnet])
             control_modes = None
@@ -197,14 +197,16 @@ class Predictor(BasePredictor):
             self.pipe.controlnet = FluxMultiControlNetModel([self.controlnet_union])
         else:
             raise ValueError("Invalid combination of control images")
+
         print('modes:', control_modes)
-        print('controlnet', self.pipe.controlnet)
+        print('controlnet:', self.pipe.controlnet)
+
         generated_image = self.pipe(
             prompt,
             control_image=control_images,
             control_mode=control_modes,
             width=reference_size[0] if widthh == 0 else widthh,
-            height=reference_size[1] if heightt==0 else heightt,
+            height=reference_size[1] if heightt == 0 else heightt,
             controlnet_conditioning_scale=control_strengths,
             num_inference_steps=steps,
             guidance_scale=guidance_scale,
