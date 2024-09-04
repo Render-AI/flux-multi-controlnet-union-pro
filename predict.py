@@ -197,7 +197,8 @@ class Predictor(BasePredictor):
             self.pipe.controlnet = FluxMultiControlNetModel([self.controlnet_union])
         else:
             raise ValueError("Invalid combination of control images")
-
+        print('modes:', control_modes)
+        print('controlnet', self.pipe.controlnet)
         generated_image = self.pipe(
             prompt,
             control_image=control_images,
