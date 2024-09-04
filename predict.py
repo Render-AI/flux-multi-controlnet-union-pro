@@ -7,6 +7,7 @@ from PIL import Image
 from diffusers import (
     FluxControlNetPipeline,
     FluxControlNetModel,
+    FluxMultiControlNetModel,
     DDIMScheduler,
     DPMSolverMultistepScheduler,
     EulerAncestralDiscreteScheduler,
@@ -34,6 +35,9 @@ ADD_DETAILS_LORA_REPO = "Shakker-Labs/FLUX.1-dev-LoRA-add-details"
 ADD_DETAILS_LORA_CKPT_NAME = "FLUX-dev-lora-add_details.safetensors"
 REALISM_LORA_REPO = "XLabs-AI/flux-RealismLora"
 REALISM_LORA_CKPT_NAME = "lora.safetensors"
+CONTROLNET_CACHE = "FLUX.1-dev-ControlNet-Union-Pro"
+CONTROLNET_MODEL_UNION = 'Shakker-Labs/FLUX.1-dev-ControlNet-Union-Pro'
+CONTROLNET_CANNY = "InstantX/FLUX.1-dev-Controlnet-Canny-alpha"
 
 SCHEDULERS = {
     "FlowMatchEulerDiscreteScheduler": FlowMatchEulerDiscreteScheduler,
@@ -65,12 +69,16 @@ class Predictor(BasePredictor):
             download_weights(MODEL_URL, ".")
 
         self.canny_controlnet = FluxControlNetModel.from_pretrained(
-            "InstantX/FLUX.1-dev-Controlnet-Canny-alpha",
+            CONTROLNET_CANNY,
             torch_dtype=torch.float16
         )
+        self.controlnet_union = FluxControlNetModel.from_pretrained(
+            CONTROLNET_MODEL_UNION,
+            torch_dtype=torch.float16
+        )
+        
         self.pipe = FluxControlNetPipeline.from_pretrained(
             MODEL_CACHE,
-            controlnet=self.canny_controlnet,
             torch_dtype=torch.float16
         )
         
@@ -87,14 +95,29 @@ class Predictor(BasePredictor):
         self,
         prompt: str = Input(description="Input prompt", default="A girl in city, 25 years old, cool, futuristic"),
         canny_image: Path = Input(description="Input image for Canny ControlNet", default=None),
+        tile_image: Path = Input(description="Input image for Tile ControlNet", default=None),
+        depth_image: Path = Input(description="Input image for Depth ControlNet", default=None),
+        blur_image: Path = Input(description="Input image for Blur ControlNet", default=None),
+        pose_image: Path = Input(description="Input image for Pose ControlNet", default=None),
+        gray_image: Path = Input(description="Input image for Gray ControlNet", default=None),
+        low_quality_image: Path = Input(description="Input image for Low Quality ControlNet", default=None),
         guidance_scale: float = Input(description="Guidance scale", default=3.5, ge=0, le=20),
         steps: int = Input(description="Number of inference steps", default=8, ge=1, le=50),
         seed: int = Input(description="Set a seed for reproducibility. Random by default.", default=None),
         canny_strength: float = Input(description="Canny ControlNet strength", default=0.6, ge=0, le=2),
+        tile_strength: float = Input(description="Tile ControlNet strength", default=0.6, ge=0, le=2),
+        depth_strength: float = Input(description="Depth ControlNet strength", default=0.6, ge=0, le=2),
+        blur_strength: float = Input(description="Blur ControlNet strength", default=0.6, ge=0, le=2),
+        pose_strength: float = Input(description="Pose ControlNet strength", default=0.6, ge=0, le=2),
+        gray_strength: float = Input(description="Gray ControlNet strength", default=0.6, ge=0, le=2),
+        low_quality_strength: float = Input(description="Low Quality ControlNet strength", default=0.6, ge=0, le=2),
         hyperflex_lora_weight: float = Input(description="HyperFlex LoRA weight", default=0.125, ge=0, le=1),
         add_details_lora_weight: float = Input(description="Add Details LoRA weight", default=0, ge=0, le=1),
         realism_lora_weight: float = Input(description="Realism LoRA weight", default=0, ge=0, le=1),
+        widthh: int = Input(description="width", default=0, ge=412),
+        heightt: int = Input(description="height", default=0, ge=412),
     ) -> Path:
+
         if seed is None:
             seed = int.from_bytes(os.urandom(2), "big")
         print(f"Using seed: {seed}")
@@ -121,30 +144,68 @@ class Predictor(BasePredictor):
             self.pipe.fuse_lora(adapter_names=loras)
 
         print("active adapters:", self.pipe.get_active_adapters())
-        use_controlnet = True
-        if use_controlnet and canny_image:
-            canny_input = Image.open(canny_image)
-            canny_processed = self.canny_detector(canny_input)
 
-            generated_image = self.pipe(
-                prompt,
-                control_image=canny_processed,
-                controlnet_conditioning_scale=canny_strength,
-                width=canny_input.size[0],
-                height=canny_input.size[1],
-                num_inference_steps=steps,
-                guidance_scale=guidance_scale,
-                generator=generator
-            ).images[0]
-        elif use_controlnet and not canny_image:
-            raise ValueError("Canny image must be provided when use_controlnet is True")
+
+        image_inputs = [
+            (canny_image, 0, canny_strength),
+            (tile_image, 1, tile_strength),
+            (depth_image, 2, depth_strength),
+            (blur_image, 3, blur_strength),
+            (pose_image, 4, pose_strength),
+            (gray_image, 5, gray_strength),
+            (low_quality_image, 6, low_quality_strength)
+        ]
+
+        control_images = []
+        control_modes = []
+        control_strengths = []
+        reference_size = None
+        has_canny = False
+        has_others = False
+
+        for img_path, mode, strength in image_inputs:
+            if img_path:
+                img = Image.open(img_path)
+                if reference_size is None:
+                    # Set the reference size based on the first provided image
+                    width, height = img.size
+                    reference_size = (width // 8 * 8, height // 8 * 8)
+                
+                # Resize the image to match the reference size
+                img = img.resize(reference_size)
+                if mode == 0:  # Canny
+                    img = self.canny_detector(img)
+                    has_canny = True
+                else:
+                    has_others = True
+                control_images.append(img)
+                control_modes.append(mode)
+                control_strengths.append(strength)
+
+        if not control_images:
+            raise ValueError("At least one control image must be provided")
+
+        # Configure the ControlNet based on the provided images
+        if has_canny and not has_others:
+            self.pipe.controlnet = FluxMultiControlNetModel([self.canny_controlnet])
+        elif has_canny and has_others:
+            self.pipe.controlnet = FluxMultiControlNetModel([self.canny_controlnet, self.controlnet_union])
+        elif not has_canny and has_others:
+            self.pipe.controlnet = FluxMultiControlNetModel([self.controlnet_union])
         else:
-            generated_image = self.pipe(
-                prompt,
-                num_inference_steps=steps,
-                guidance_scale=guidance_scale,
-                generator=generator
-            ).images[0]
+            raise ValueError("Invalid combination of control images")
+
+        generated_image = self.pipe(
+            prompt,
+            control_image=control_images,
+            control_mode=control_modes,
+            width=reference_size[0] if widthh == 0 else widthh,
+            height=reference_size[1] if heightt==0 else heightt,
+            controlnet_conditioning_scale=control_strengths,
+            num_inference_steps=steps,
+            guidance_scale=guidance_scale,
+            generator=generator
+        ).images[0]
 
         if loras:
             self.pipe.unfuse_lora()
