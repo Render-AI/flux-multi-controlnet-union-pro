@@ -78,7 +78,7 @@ class Predictor(BasePredictor):
         )
 
         # Always use FluxMultiControlNetModel
-        self.controlnet = FluxMultiControlNetModel([self.canny_controlnet, self.controlnet_union])
+        self.controlnet = FluxMultiControlNetModel([self.controlnet_union])
         
         self.pipe = FluxControlNetPipeline.from_pretrained(
             MODEL_CACHE,
@@ -141,7 +141,7 @@ class Predictor(BasePredictor):
         if realism_lora_weight > 0:
             lora_weights.append(realism_lora_weight)
             loras.append("realism")
-        
+
         if loras:
             print(loras)
             self.pipe.set_adapters(loras, adapter_weights=lora_weights)
@@ -186,6 +186,19 @@ class Predictor(BasePredictor):
 
         if not control_images:
             raise ValueError("At least one control image must be provided")
+        
+        if len(control_images) == 1:
+            control_images = control_images[0]
+        else:
+            control_images = control_images
+
+        if len(control_strengths) == 1:
+            control_strengths = control_strengths[0]
+
+        if control_modes and len(control_modes) == 1:
+            control_modes = control_modes[0]
+        elif not control_modes:
+            control_modes = None
 
         # Update the pipeline's controlnets based on the provided images
         if has_canny and not has_others:
@@ -195,11 +208,14 @@ class Predictor(BasePredictor):
             self.pipe.controlnet = FluxMultiControlNetModel([self.canny_controlnet, self.controlnet_union])
         elif not has_canny and has_others:
             self.pipe.controlnet = FluxMultiControlNetModel([self.controlnet_union])
+            control_modes = control_modes or None  # Set to None if empty
         else:
             raise ValueError("Invalid combination of control images")
 
         print('modes:', control_modes)
-        print('controlnet:', self.pipe.controlnet)
+        print("control_images shape:", [img.shape for img in control_images] if isinstance(control_images, list) else control_images.shape)
+        print("control_modes:", control_modes)
+        print("control_strengths:", control_strengths)
 
         generated_image = self.pipe(
             prompt,
