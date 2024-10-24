@@ -50,6 +50,7 @@ def download_weights(url, dest):
     print("downloading took: ", time.time() - start)
 
 class Predictor(BasePredictor):
+
     def setup(self) -> None:
         if not os.path.exists(MODEL_CACHE):
             download_weights(MODEL_URL, ".")
@@ -64,8 +65,8 @@ class Predictor(BasePredictor):
         
         # Initialize with two default ControlNets (can be updated later)
         controlnet = FluxMultiControlNetModel([
-            FluxControlNetModel.from_pretrained(CONTROLNET_CANNY, torch_dtype=torch.float16),
-            FluxControlNetModel.from_pretrained(CONTROLNET_CANNY, torch_dtype=torch.float16),
+            FluxControlNetModel.from_pretrained(CONTROLNET_CANNY, torch_dtype=torch.float16).to("cuda"),
+            FluxControlNetModel.from_pretrained(CONTROLNET_CANNY, torch_dtype=torch.float16).to("cuda"),
         ])
 
         # Initialize pipeline
@@ -93,8 +94,11 @@ class Predictor(BasePredictor):
             self.controlnet_models[model_type] = FluxControlNetModel.from_pretrained(
                 model_id,
                 torch_dtype=torch.float16
-            )
+            ).to("cuda")  # Move model to CUDA
         return self.controlnet_models[model_type]
+    
+
+
 
     def process_image(self, image: Image.Image, controlnet_type: str) -> Image.Image:
         """Process the input image based on the controlnet type."""
