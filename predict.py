@@ -7,7 +7,6 @@ from PIL import Image
 from diffusers import (
     FluxControlNetPipeline,
     FluxControlNetModel,
-    FluxMultiControlNetModel,
     DDIMScheduler,
     DPMSolverMultistepScheduler,
     EulerAncestralDiscreteScheduler,
@@ -49,9 +48,6 @@ def download_weights(url, dest):
     subprocess.check_call(["pget", "-xf", url, dest], close_fds=False)
     print("downloading took: ", time.time() - start)
 
-
-
-
 class Predictor(BasePredictor):
     def setup(self) -> None:
         if not os.path.exists(MODEL_CACHE):
@@ -62,10 +58,7 @@ class Predictor(BasePredictor):
         self.depth_detector = MidasDetector.from_pretrained("lllyasviel/ControlNet")
         self.lineart_detector = LineartDetector.from_pretrained("lllyasviel/Annotators")
         
-        # Initialize MultiControlNet
-        controlnet_list = []
-        
-        # Pre-initialize all possible controlnets
+        # Initialize all controlnet models
         self.controlnet_models = {
             "upscaler": FluxControlNetModel.from_pretrained(
                 CONTROLNET_UPSCALER,
@@ -85,15 +78,14 @@ class Predictor(BasePredictor):
             )
         }
 
-        # Initialize MultiControlNet with empty list
-        controlnet = FluxMultiControlNetModel([])
-        
-        # Initialize pipeline
+        # Initialize with default controlnet (can be changed later)
         self.pipe = FluxControlNetPipeline.from_pretrained(
             MODEL_CACHE,
-            controlnet=controlnet,
+            controlnet=self.controlnet_models["canny"],  # default controlnet
             torch_dtype=torch.float16
-        ).to("cuda")
+        )
+        
+        self.pipe.to("cuda")
 
         # Load LoRA weights
         self.pipe.load_lora_weights(HYPERFLEX_LORA_REPO_NAME, weight_name=HYPERFLEX_LORA_CKPT_NAME, adapter_name="hyperflex")
@@ -109,6 +101,7 @@ class Predictor(BasePredictor):
         elif controlnet_type == "lineart":
             return self.lineart_detector(image)
         elif controlnet_type == "upscaler":
+            # Upscaler doesn't need preprocessing
             return image
         else:
             raise ValueError(f"Unknown controlnet type: {controlnet_type}")
@@ -116,59 +109,37 @@ class Predictor(BasePredictor):
     def predict(
         self,
         prompt: str = Input(description="Input prompt", default="A girl in city, 25 years old, cool, futuristic"),
-        canny_image: Path = Input(description="Input image for Canny ControlNet", default=None),
-        depth_image: Path = Input(description="Input image for Depth ControlNet", default=None),
-        lineart_image: Path = Input(description="Input image for Lineart ControlNet", default=None),
-        upscaler_image: Path = Input(description="Input image for Upscaler ControlNet", default=None),
-        canny_strength: float = Input(description="Canny ControlNet strength", default=0.6, ge=0, le=2),
-        depth_strength: float = Input(description="Depth ControlNet strength", default=0.6, ge=0, le=2),
-        lineart_strength: float = Input(description="Lineart ControlNet strength", default=0.6, ge=0, le=2),
-        upscaler_strength: float = Input(description="Upscaler ControlNet strength", default=0.6, ge=0, le=2),
+        controlnet_type: str = Input(description="Type of ControlNet to use", default="canny", choices=["upscaler", "lineart", "canny", "depth"]),
+        control_image: Path = Input(description="Input image for ControlNet", default=None),
         guidance_scale: float = Input(description="Guidance scale", default=3.5, ge=0, le=20),
         steps: int = Input(description="Number of inference steps", default=8, ge=1, le=50),
         seed: int = Input(description="Set a seed for reproducibility. Random by default.", default=None),
+        control_strength: float = Input(description="ControlNet strength", default=0.6, ge=0, le=2),
         hyperflex_lora_weight: float = Input(description="HyperFlex LoRA weight", default=0.125, ge=0, le=1),
         add_details_lora_weight: float = Input(description="Add Details LoRA weight", default=0, ge=0, le=1),
         realism_lora_weight: float = Input(description="Realism LoRA weight", default=0, ge=0, le=1),
         widthh: int = Input(description="width", default=0, ge=0, le=5000),
         heightt: int = Input(description="height", default=0, ge=0, le=5000),
     ) -> Path:
+        # Set the appropriate controlnet
+        self.pipe.controlnet = self.controlnet_models[controlnet_type]
+
         if seed is None:
             seed = int.from_bytes(os.urandom(2), "big")
         print(f"Using seed: {seed}")
         generator = torch.Generator("cuda").manual_seed(seed)
 
-        # Process control images and create controlnet list
-        control_images = []
-        active_controlnets = []
-        control_strengths = []
-        reference_size = None
-
-        image_configs = [
-            (canny_image, "canny", canny_strength),
-            (depth_image, "depth", depth_strength),
-            (lineart_image, "lineart", lineart_strength),
-            (upscaler_image, "upscaler", upscaler_strength)
-        ]
-
-        for img_path, controlnet_type, strength in image_configs:
-            if img_path:
-                img = Image.open(img_path)
-                if reference_size is None:
-                    width, height = img.size
-                    reference_size = (width // 8 * 8, height // 8 * 8)
-                img = img.resize(reference_size)
-                
-                processed_image = self.process_image(img, controlnet_type)
-                control_images.append(processed_image)
-                active_controlnets.append(self.controlnet_models[controlnet_type])
-                control_strengths.append(strength)
-
-        if not control_images:
-            raise ValueError("At least one control image must be provided")
-
-        # Update pipeline with active controlnets
-        self.pipe.controlnet = FluxMultiControlNetModel(active_controlnets)
+        # Process control image
+        if not control_image:
+            raise ValueError("Control image must be provided")
+            
+        img = Image.open(control_image)
+        width, height = img.size
+        reference_size = (width // 8 * 8, height // 8 * 8)
+        img = img.resize(reference_size)
+        
+        # Process the image according to the controlnet type
+        processed_image = self.process_image(img, controlnet_type)
 
         # Handle LoRA weights
         lora_weights = []
@@ -190,13 +161,12 @@ class Predictor(BasePredictor):
             self.pipe.set_adapters(loras, adapter_weights=lora_weights)
             self.pipe.fuse_lora(adapter_names=loras)
 
-        # Generate image
         generated_image = self.pipe(
             prompt,
-            control_image=control_images[0] if len(control_images) == 1 else control_images,
-            controlnet_conditioning_scale=control_strengths[0] if len(control_strengths) == 1 else control_strengths,
+            control_image=processed_image,
             width=reference_size[0] if widthh == 0 else widthh,
             height=reference_size[1] if heightt == 0 else heightt,
+            controlnet_conditioning_scale=control_strength,
             num_inference_steps=steps,
             guidance_scale=guidance_scale,
             generator=generator
@@ -208,8 +178,3 @@ class Predictor(BasePredictor):
         output_path = f"/tmp/output.png"
         generated_image.save(output_path)
         return Path(output_path)
-
-
-
-
-
