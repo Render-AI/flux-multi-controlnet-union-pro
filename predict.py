@@ -41,6 +41,13 @@ CONTROLNET_LINEART = "promeai/FLUX.1-controlnet-lineart-promeai"
 CONTROLNET_CANNY = "Xlabs-AI/flux-controlnet-canny-diffusers"
 CONTROLNET_DEPTH = "Xlabs-AI/flux-controlnet-depth-diffusers"
 
+def download_weights(url, dest):
+    start = time.time()
+    print("downloading url: ", url)
+    print("downloading to: ", dest)
+    subprocess.check_call(["pget", "-xf", url, dest], close_fds=False)
+    print("downloading took: ", time.time() - start)
+
 class Predictor(BasePredictor):
     def setup(self) -> None:
         if not os.path.exists(MODEL_CACHE):
