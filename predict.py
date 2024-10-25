@@ -18,28 +18,8 @@ CONTROLNET_CACHE = "controlnet_cache"
 LORA_CACHE = "lora_cache"
 DETECTOR_CACHE = "detector_cache"
 
-MODEL_NAME = 'black-forest-labs/FLUX.1-dev'
 MODEL_URL = "https://weights.replicate.delivery/default/black-forest-labs/FLUX.1-dev/files.tar"
-HYPERFLEX_LORA_REPO_NAME = "ByteDance/Hyper-SD"
-HYPERFLEX_LORA_CKPT_NAME = "Hyper-FLUX.1-dev-8steps-lora.safetensors"
-ADD_DETAILS_LORA_REPO = "Shakker-Labs/FLUX.1-dev-LoRA-add-details"
-ADD_DETAILS_LORA_CKPT_NAME = "FLUX-dev-lora-add_details.safetensors"
-REALISM_LORA_REPO = "XLabs-AI/flux-RealismLora"
-REALISM_LORA_CKPT_NAME = "lora.safetensors"
 
-# ControlNet model IDs
-CONTROLNET_UPSCALER = "jasperai/Flux.1-dev-Controlnet-Upscaler"
-CONTROLNET_LINEART = "promeai/FLUX.1-controlnet-lineart-promeai"
-CONTROLNET_CANNY = "InstantX/FLUX.1-dev-controlnet-canny"
-CONTROLNET_DEPTH = "Xlabs-AI/flux-controlnet-depth-diffusers"
-
-
-def download_weights(url, dest):
-    start = time.time()
-    print("downloading url: ", url)
-    print("downloading to: ", dest)
-    subprocess.check_call(["pget", "-xf", url, dest], close_fds=False)
-    print("downloading took: ", time.time() - start)
 
 class Predictor(BasePredictor):
 
@@ -276,3 +256,4 @@ class Predictor(BasePredictor):
         output_path = f"/tmp/output.png"
         generated_image.save(output_path)
         return Path(output_path)
+    
