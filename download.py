@@ -7,6 +7,16 @@ from diffusers import FluxControlNetModel
 from controlnet_aux import CannyDetector, MidasDetector, LineartDetector
 from huggingface_hub import hf_hub_download
 
+import os
+import sys
+import time
+import subprocess
+import torch
+from diffusers import FluxControlNetModel
+from controlnet_aux import CannyDetector, MidasDetector, LineartDetector
+from huggingface_hub import hf_hub_download
+import gc
+
 # Constants
 MODEL_CACHE = "FLUX.1-dev"
 MODEL_URL = "https://weights.replicate.delivery/default/black-forest-labs/FLUX.1-dev/files.tar"
