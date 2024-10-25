@@ -54,8 +54,27 @@ def download_weights(url, dest):
     start = time.time()
     print("downloading url: ", url)
     print("downloading to: ", dest)
-    subprocess.check_call(["pget", "-xf", url, dest], close_fds=False)
-    print("downloading took: ", time.time() - start)
+    
+    try:
+        # First try using wget
+        subprocess.check_call(["wget", "-P", dest, url], close_fds=False)
+        print("downloading took: ", time.time() - start)
+    except FileNotFoundError:
+        try:
+            # If wget not found, try curl
+            subprocess.check_call(["curl", "-o", os.path.join(dest, url.split('/')[-1]), url], close_fds=False)
+            print("downloading took: ", time.time() - start)
+        except FileNotFoundError:
+            try:
+                # If curl not found, try pget
+                subprocess.check_call(["pget", "-xf", url, dest], close_fds=False)
+                print("downloading took: ", time.time() - start)
+            except FileNotFoundError:
+                # If none of the above work, use Python's urllib
+                import urllib.request
+                print("Downloading using urllib...")
+                urllib.request.urlretrieve(url, os.path.join(dest, url.split('/')[-1]))
+                print("downloading took: ", time.time() - start)
 
 def create_cache_dirs():
     """Create all necessary cache directories"""
