@@ -24,19 +24,10 @@ MODEL_URL = "https://weights.replicate.delivery/default/black-forest-labs/FLUX.1
 class Predictor(BasePredictor):
 
     def setup(self) -> None:
-        # Initialize detectors from cache
-        self.canny_detector = CannyDetector.from_pretrained(
-            os.path.join(DETECTOR_CACHE, "canny")
-        )
-        self.depth_detector = MidasDetector.from_pretrained(
-            os.path.join(DETECTOR_CACHE, "depth")
-        )
-        self.lineart_detector = LineartDetector.from_pretrained(
-            os.path.join(DETECTOR_CACHE, "lineart")
-        )
-        
-        # Initialize controlnet models dict
-        self.controlnet_models = {}
+        # Initialize detectors directly (they're installed via pip)
+        self.canny_detector = CannyDetector()  # CannyDetector doesn't use from_pretrained
+        self.depth_detector = MidasDetector.from_pretrained("lllyasviel/ControlNet")
+        self.lineart_detector = LineartDetector.from_pretrained("lllyasviel/Annotators")
         
         # Initialize with two default ControlNets from cache
         controlnet = FluxMultiControlNetModel([
@@ -58,11 +49,19 @@ class Predictor(BasePredictor):
         ).to("cuda")
 
         # Load LoRA weights from cache
-        for name in ["hyperflex", "add_details", "realism"]:
-            self.pipe.load_lora_weights(
-                os.path.join(LORA_CACHE, name),
-                adapter_name=name
-            )
+        for name, adapter_name in [
+            ("hyperflex", "hyperflex"),
+            ("add_details", "add_details"),
+            ("realism", "realism")
+        ]:
+            lora_dir = os.path.join(LORA_CACHE, name)
+            lora_files = [f for f in os.listdir(lora_dir) if f.endswith('.safetensors')]
+            if lora_files:
+                lora_path = os.path.join(lora_dir, lora_files[0])
+                self.pipe.load_lora_weights(
+                    lora_path,
+                    adapter_name=adapter_name
+                )
 
     def get_controlnet_model(self, model_type: str) -> FluxControlNetModel:
         """Get or load a controlnet model from cache."""
