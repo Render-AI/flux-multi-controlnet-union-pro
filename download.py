@@ -46,6 +46,10 @@ LORAS = {
     }
 }
 
+def is_folder_empty(folder_path):
+    """Check if a folder is empty."""
+    return len(os.listdir(folder_path)) == 0
+
 def download_weights(url, dest):
     start = time.time()
     print("downloading url: ", url)
@@ -67,7 +71,7 @@ def create_cache_dirs():
 
 def download_main_model():
     """Download main Flux model"""
-    if not os.path.exists(MODEL_CACHE):
+    if not os.path.exists(MODEL_CACHE) or is_folder_empty(MODEL_CACHE):
         download_weights(MODEL_URL, ".")
     print(f"Main model downloaded to {MODEL_CACHE}")
 
@@ -77,16 +81,22 @@ def download_controlnets():
         print(f"Downloading ControlNet {name} from {config['repo']}")
         cache_dir = os.path.join(CONTROLNET_CACHE, name)
         
-        for file in config['files']:
-            try:
-                hf_hub_download(
-                    repo_id=config['repo'],
-                    filename=file,
-                    local_dir=cache_dir
-                )
-                print(f"Downloaded {file} for {name}")
-            except Exception as e:
-                print(f"Error downloading {file} for {name}: {e}")
+        # Download if directory is empty or missing files
+        expected_files = set(config['files'])
+        existing_files = set(os.listdir(cache_dir)) if os.path.exists(cache_dir) else set()
+        missing_files = expected_files - existing_files
+
+        if missing_files or is_folder_empty(cache_dir):
+            for file in config['files']:
+                try:
+                    hf_hub_download(
+                        repo_id=config['repo'],
+                        filename=file,
+                        local_dir=cache_dir
+                    )
+                    print(f"Downloaded {file} for {name}")
+                except Exception as e:
+                    print(f"Error downloading {file} for {name}: {e}")
 
 def download_loras():
     """Download LoRA weights"""
@@ -94,15 +104,18 @@ def download_loras():
         print(f"Downloading LoRA {name} from {config['repo']}")
         cache_dir = os.path.join(LORA_CACHE, name)
         
-        try:
-            hf_hub_download(
-                repo_id=config['repo'],
-                filename=config['file'],
-                local_dir=cache_dir
-            )
-            print(f"Downloaded LoRA {name}")
-        except Exception as e:
-            print(f"Error downloading LoRA {name}: {e}")
+        # Check if file exists or directory is empty
+        file_path = os.path.join(cache_dir, config['file'])
+        if not os.path.exists(file_path) or is_folder_empty(cache_dir):
+            try:
+                hf_hub_download(
+                    repo_id=config['repo'],
+                    filename=config['file'],
+                    local_dir=cache_dir
+                )
+                print(f"Downloaded LoRA {name}")
+            except Exception as e:
+                print(f"Error downloading LoRA {name}: {e}")
 
 def install_detector_packages():
     """Install detector packages via pip"""
