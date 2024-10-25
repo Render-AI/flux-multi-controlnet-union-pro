@@ -1,13 +1,15 @@
 import os
 import sys
+import time
+import subprocess
 import torch
-from diffusers import FluxControlNetPipeline, FluxControlNetModel
+from diffusers import FluxControlNetModel
 from controlnet_aux import CannyDetector, MidasDetector, LineartDetector
 from huggingface_hub import hf_hub_download
 
 # Constants
 MODEL_CACHE = "FLUX.1-dev"
-MODEL_NAME = 'black-forest-labs/FLUX.1-dev'
+MODEL_URL = "https://weights.replicate.delivery/default/black-forest-labs/FLUX.1-dev/files.tar"
 CONTROLNET_CACHE = "controlnet_cache"
 LORA_CACHE = "lora_cache"
 DETECTOR_CACHE = "detector_cache"
@@ -52,6 +54,13 @@ DETECTORS = {
     }
 }
 
+def download_weights(url, dest):
+    start = time.time()
+    print("downloading url: ", url)
+    print("downloading to: ", dest)
+    subprocess.check_call(["pget", "-xf", url, dest], close_fds=False)
+    print("downloading took: ", time.time() - start)
+
 def create_cache_dirs():
     """Create all necessary cache directories"""
     for dir_path in [MODEL_CACHE, CONTROLNET_CACHE, LORA_CACHE, DETECTOR_CACHE]:
@@ -65,14 +74,10 @@ def create_cache_dirs():
             os.makedirs(os.path.join(DETECTOR_CACHE, detector), exist_ok=True)
 
 def download_main_model():
-    """Download and save main Flux model"""
-    print(f"Downloading main model from {MODEL_NAME}")
-    pipe = FluxControlNetPipeline.from_pretrained(
-        MODEL_NAME,
-        torch_dtype=torch.float16,
-    )
-    pipe.save_pretrained(MODEL_CACHE, safe_serialization=True)
-    print(f"Main model saved to {MODEL_CACHE}")
+    """Download main Flux model using pget"""
+    if not os.path.exists(MODEL_CACHE):
+        download_weights(MODEL_URL, ".")
+    print(f"Main model downloaded to {MODEL_CACHE}")
 
 def download_controlnets():
     """Download and save ControlNets"""
