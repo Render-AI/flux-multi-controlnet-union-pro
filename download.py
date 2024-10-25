@@ -58,10 +58,14 @@ def install_requirements():
     except Exception as e:
         print(f"Error installing system requirements: {e}")
 
+
 def download_weights(url, dest):
     start = time.time()
     print("downloading url: ", url)
     print("downloading to: ", dest)
+    
+    # Ensure destination directory exists
+    os.makedirs(dest, exist_ok=True)
     
     downloaded_file = os.path.join(dest, url.split('/')[-1])
     
@@ -90,6 +94,7 @@ def download_weights(url, dest):
     
     print("Total process took: ", time.time() - start)
 
+
 def create_cache_dirs():
     """Create all necessary cache directories"""
     for dir_path in [MODEL_CACHE, CONTROLNET_CACHE, LORA_CACHE]:
@@ -105,7 +110,7 @@ def create_cache_dirs():
 def download_main_model():
     """Download main Flux model"""
     if not os.path.exists(MODEL_CACHE) or is_folder_empty(MODEL_CACHE):
-        download_weights(MODEL_URL, ".")
+        download_weights(MODEL_URL, MODEL_CACHE)  # Changed from "." to MODEL_CACHE
     print(f"Main model downloaded to {MODEL_CACHE}")
 
 def download_controlnets():

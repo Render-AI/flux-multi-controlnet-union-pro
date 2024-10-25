@@ -24,31 +24,29 @@ MODEL_URL = "https://weights.replicate.delivery/default/black-forest-labs/FLUX.1
 class Predictor(BasePredictor):
 
     def setup(self) -> None:
-        # Initialize detectors directly (they're installed via pip)
-        self.canny_detector = CannyDetector()  # CannyDetector doesn't use from_pretrained
+        """Initialize all models and detectors during setup"""
+        # Initialize detectors
+        self.canny_detector = CannyDetector()
         self.depth_detector = MidasDetector.from_pretrained("lllyasviel/ControlNet")
         self.lineart_detector = LineartDetector.from_pretrained("lllyasviel/Annotators")
         
-        # Initialize with two default ControlNets from cache
-        controlnet = FluxMultiControlNetModel([
-            FluxControlNetModel.from_pretrained(
-                os.path.join(CONTROLNET_CACHE, "canny"),
+        # Initialize all controlnet models
+        self.controlnet_models = {}
+        for model_type in ["canny", "depth", "lineart", "upscaler"]:
+            print(f"Loading {model_type} controlnet...")
+            self.controlnet_models[model_type] = FluxControlNetModel.from_pretrained(
+                os.path.join(CONTROLNET_CACHE, model_type),
                 torch_dtype=torch.float16
-            ).to("cuda"),
-            FluxControlNetModel.from_pretrained(
-                os.path.join(CONTROLNET_CACHE, "canny"),
-                torch_dtype=torch.float16
-            ).to("cuda"),
-        ])
-
-        # Initialize pipeline from cache
+            ).to("cuda")
+        
+        # Initialize pipeline with a default controlnet (we'll swap it during prediction)
         self.pipe = FluxControlNetPipeline.from_pretrained(
             MODEL_CACHE,
-            controlnet=controlnet,
+            controlnet=self.controlnet_models["canny"],  # Just temporary, will be swapped
             torch_dtype=torch.float16
         ).to("cuda")
 
-        # Load LoRA weights from cache
+        # Load LoRA weights
         for name, adapter_name in [
             ("hyperflex", "hyperflex"),
             ("add_details", "add_details"),
@@ -64,13 +62,9 @@ class Predictor(BasePredictor):
                 )
 
     def get_controlnet_model(self, model_type: str) -> FluxControlNetModel:
-        """Get or load a controlnet model from cache."""
+        """Get a controlnet model from the pre-loaded models."""
         if model_type not in self.controlnet_models:
-            cache_path = os.path.join(CONTROLNET_CACHE, model_type)
-            self.controlnet_models[model_type] = FluxControlNetModel.from_pretrained(
-                cache_path,
-                torch_dtype=torch.float16
-            ).to("cuda")
+            raise ValueError(f"Unknown controlnet type: {model_type}")
         return self.controlnet_models[model_type]
 
 
@@ -208,7 +202,7 @@ class Predictor(BasePredictor):
                 
                 processed_image = self.process_image(img, controlnet_type)
                 control_images.append(processed_image)
-                active_controlnets.append(self.get_controlnet_model(controlnet_type))
+                active_controlnets.append(self.controlnet_models[controlnet_type])
                 control_strengths.append(strength)
 
         if not control_images:
