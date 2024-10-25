@@ -9,9 +9,8 @@ MODEL_CACHE = "FLUX.1-dev"
 MODEL_URL = "https://weights.replicate.delivery/default/black-forest-labs/FLUX.1-dev/files.tar"
 CONTROLNET_CACHE = "controlnet_cache"
 LORA_CACHE = "lora_cache"
-DETECTOR_CACHE = "detector_cache"
 
-# ControlNets - just the model files we need
+# ControlNets
 CONTROLNETS = {
     "upscaler": {
         "repo": "jasperai/Flux.1-dev-Controlnet-Upscaler",
@@ -47,22 +46,6 @@ LORAS = {
     }
 }
 
-# Detectors - files needed
-DETECTORS = {
-    "canny": {
-        "repo": "lllyasviel/Annotators",
-        "files": ["config.json", "pytorch_model.bin"]
-    },
-    "depth": {
-        "repo": "lllyasviel/ControlNet",
-        "files": ["config.json", "pytorch_model.bin"]
-    },
-    "lineart": {
-        "repo": "lllyasviel/Annotators",
-        "files": ["config.json", "pytorch_model.bin"]
-    }
-}
-
 def download_weights(url, dest):
     start = time.time()
     print("downloading url: ", url)
@@ -72,7 +55,7 @@ def download_weights(url, dest):
 
 def create_cache_dirs():
     """Create all necessary cache directories"""
-    for dir_path in [MODEL_CACHE, CONTROLNET_CACHE, LORA_CACHE, DETECTOR_CACHE]:
+    for dir_path in [MODEL_CACHE, CONTROLNET_CACHE, LORA_CACHE]:
         if not os.path.exists(dir_path):
             os.makedirs(dir_path)
     
@@ -81,8 +64,6 @@ def create_cache_dirs():
         os.makedirs(os.path.join(CONTROLNET_CACHE, controlnet), exist_ok=True)
     for lora in LORAS.keys():
         os.makedirs(os.path.join(LORA_CACHE, lora), exist_ok=True)
-    for detector in DETECTORS.keys():
-        os.makedirs(os.path.join(DETECTOR_CACHE, detector), exist_ok=True)
 
 def download_main_model():
     """Download main Flux model"""
@@ -123,22 +104,18 @@ def download_loras():
         except Exception as e:
             print(f"Error downloading LoRA {name}: {e}")
 
-def download_detectors():
-    """Download detector files directly"""
-    for name, config in DETECTORS.items():
-        print(f"Downloading detector {name} from {config['repo']}")
-        cache_dir = os.path.join(DETECTOR_CACHE, name)
-        
-        for file in config['files']:
-            try:
-                hf_hub_download(
-                    repo_id=config['repo'],
-                    filename=file,
-                    local_dir=cache_dir
-                )
-                print(f"Downloaded {file} for {name}")
-            except Exception as e:
-                print(f"Error downloading {file} for {name}: {e}")
+def install_detector_packages():
+    """Install detector packages via pip"""
+    print("Installing detector packages...")
+    packages = [
+        "controlnet_aux",
+    ]
+    for package in packages:
+        try:
+            subprocess.check_call([sys.executable, "-m", "pip", "install", package])
+            print(f"Installed {package}")
+        except Exception as e:
+            print(f"Error installing {package}: {e}")
 
 def main():
     try:
@@ -154,8 +131,8 @@ def main():
         print("\nDownloading LoRAs...")
         download_loras()
 
-        print("\nDownloading detectors...")
-        download_detectors()
+        print("\nInstalling detector packages...")
+        install_detector_packages()
 
         print("\nAll downloads completed!")
     except Exception as e:

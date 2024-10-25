@@ -1,96 +1,62 @@
 from cog import BasePredictor, Input, Path
 import os
-import time
-import subprocess
 import torch
 from PIL import Image
 from diffusers import (
     FluxControlNetPipeline,
     FluxControlNetModel,
-    DDIMScheduler,
-    DPMSolverMultistepScheduler,
-    EulerAncestralDiscreteScheduler,
-    EulerDiscreteScheduler,
-    HeunDiscreteScheduler,
-    LMSDiscreteScheduler,
-    PNDMScheduler,
-    UniPCMultistepScheduler,
-    KDPM2AncestralDiscreteScheduler,
-    KDPM2DiscreteScheduler,
-    DDPMScheduler,
-    DEISMultistepScheduler,
-    DPMSolverSinglestepScheduler,
-    FlowMatchEulerDiscreteScheduler
+    FluxMultiControlNetModel
 )
 from controlnet_aux import CannyDetector, MidasDetector, LineartDetector
-from huggingface_hub import hf_hub_download
 
 MODEL_CACHE = "FLUX.1-dev"
-MODEL_NAME = 'black-forest-labs/FLUX.1-dev'
-MODEL_URL = "https://weights.replicate.delivery/default/black-forest-labs/FLUX.1-dev/files.tar"
-HYPERFLEX_LORA_REPO_NAME = "ByteDance/Hyper-SD"
-HYPERFLEX_LORA_CKPT_NAME = "Hyper-FLUX.1-dev-8steps-lora.safetensors"
-ADD_DETAILS_LORA_REPO = "Shakker-Labs/FLUX.1-dev-LoRA-add-details"
-ADD_DETAILS_LORA_CKPT_NAME = "FLUX-dev-lora-add_details.safetensors"
-REALISM_LORA_REPO = "XLabs-AI/flux-RealismLora"
-REALISM_LORA_CKPT_NAME = "lora.safetensors"
-
-# ControlNet model IDs
-CONTROLNET_UPSCALER = "jasperai/Flux.1-dev-Controlnet-Upscaler"
-CONTROLNET_LINEART = "promeai/FLUX.1-controlnet-lineart-promeai"
-CONTROLNET_CANNY = "Xlabs-AI/flux-controlnet-canny-diffusers"
-CONTROLNET_DEPTH = "Xlabs-AI/flux-controlnet-depth-diffusers"
-
-def download_weights(url, dest):
-    start = time.time()
-    print("downloading url: ", url)
-    print("downloading to: ", dest)
-    subprocess.check_call(["pget", "-xf", url, dest], close_fds=False)
-    print("downloading took: ", time.time() - start)
+CONTROLNET_CACHE = "controlnet_cache"
+LORA_CACHE = "lora_cache"
 
 class Predictor(BasePredictor):
     def setup(self) -> None:
-        if not os.path.exists(MODEL_CACHE):
-            download_weights(MODEL_URL, ".")
-            
-        # Initialize all detectors
+        # Initialize detectors directly (they're installed via pip)
         self.canny_detector = CannyDetector()
         self.depth_detector = MidasDetector.from_pretrained("lllyasviel/ControlNet")
         self.lineart_detector = LineartDetector.from_pretrained("lllyasviel/Annotators")
         
-        # Initialize all controlnet models
-        self.controlnet_models = {
-            "upscaler": FluxControlNetModel.from_pretrained(
-                CONTROLNET_UPSCALER,
+        # Initialize controlnet models dict
+        self.controlnet_models = {}
+        
+        # Initialize with two default ControlNets from cache
+        controlnet = FluxMultiControlNetModel([
+            FluxControlNetModel.from_pretrained(
+                os.path.join(CONTROLNET_CACHE, "canny"),
                 torch_dtype=torch.float16
-            ),
-            "lineart": FluxControlNetModel.from_pretrained(
-                CONTROLNET_LINEART,
+            ).to("cuda"),
+            FluxControlNetModel.from_pretrained(
+                os.path.join(CONTROLNET_CACHE, "canny"),
                 torch_dtype=torch.float16
-            ),
-            "canny": FluxControlNetModel.from_pretrained(
-                CONTROLNET_CANNY,
-                torch_dtype=torch.float16
-            ),
-            "depth": FluxControlNetModel.from_pretrained(
-                CONTROLNET_DEPTH,
-                torch_dtype=torch.float16
-            )
-        }
+            ).to("cuda"),
+        ])
 
-        # Initialize with default controlnet (can be changed later)
+        # Initialize pipeline from cache
         self.pipe = FluxControlNetPipeline.from_pretrained(
             MODEL_CACHE,
-            controlnet=self.controlnet_models["canny"],  # default controlnet
+            controlnet=controlnet,
             torch_dtype=torch.float16
-        )
-        
-        self.pipe.to("cuda")
+        ).to("cuda")
 
-        # Load LoRA weights
-        self.pipe.load_lora_weights(HYPERFLEX_LORA_REPO_NAME, weight_name=HYPERFLEX_LORA_CKPT_NAME, adapter_name="hyperflex")
-        self.pipe.load_lora_weights(ADD_DETAILS_LORA_REPO, weight_name=ADD_DETAILS_LORA_CKPT_NAME, adapter_name="add_details")
-        self.pipe.load_lora_weights(REALISM_LORA_REPO, weight_name=REALISM_LORA_CKPT_NAME, adapter_name="realism")
+        # Load LoRA weights from cache
+        for name, adapter_name in [
+            ("hyperflex", "hyperflex"),
+            ("add_details", "add_details"),
+            ("realism", "realism")
+        ]:
+            lora_dir = os.path.join(LORA_CACHE, name)
+            # Get the first .safetensors file in the directory
+            lora_files = [f for f in os.listdir(lora_dir) if f.endswith('.safetensors')]
+            if lora_files:
+                lora_path = os.path.join(lora_dir, lora_files[0])
+                self.pipe.load_lora_weights(
+                    lora_path,
+                    adapter_name=adapter_name
+                )
 
     def process_image(self, image: Image.Image, controlnet_type: str) -> Image.Image:
         """Process the input image based on the controlnet type."""
