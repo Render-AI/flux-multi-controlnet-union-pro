@@ -50,31 +50,45 @@ def is_folder_empty(folder_path):
     """Check if a folder is empty."""
     return len(os.listdir(folder_path)) == 0
 
+def install_requirements():
+    """Install required system packages"""
+    try:
+        subprocess.check_call(["apt-get", "update"])
+        subprocess.check_call(["apt-get", "install", "-y", "wget", "tar"])
+    except Exception as e:
+        print(f"Error installing system requirements: {e}")
+
 def download_weights(url, dest):
     start = time.time()
     print("downloading url: ", url)
     print("downloading to: ", dest)
     
+    downloaded_file = os.path.join(dest, url.split('/')[-1])
+    
     try:
-        # First try using wget
+        # First try wget
         subprocess.check_call(["wget", "-P", dest, url], close_fds=False)
-        print("downloading took: ", time.time() - start)
     except FileNotFoundError:
         try:
             # If wget not found, try curl
-            subprocess.check_call(["curl", "-o", os.path.join(dest, url.split('/')[-1]), url], close_fds=False)
-            print("downloading took: ", time.time() - start)
+            subprocess.check_call(["curl", "-o", downloaded_file, url], close_fds=False)
         except FileNotFoundError:
-            try:
-                # If curl not found, try pget
-                subprocess.check_call(["pget", "-xf", url, dest], close_fds=False)
-                print("downloading took: ", time.time() - start)
-            except FileNotFoundError:
-                # If none of the above work, use Python's urllib
-                import urllib.request
-                print("Downloading using urllib...")
-                urllib.request.urlretrieve(url, os.path.join(dest, url.split('/')[-1]))
-                print("downloading took: ", time.time() - start)
+            # If curl not found, use Python's urllib
+            import urllib.request
+            print("Downloading using urllib...")
+            urllib.request.urlretrieve(url, downloaded_file)
+
+    print("Download completed, extracting...")
+    
+    # Extract the tar file
+    try:
+        subprocess.check_call(["tar", "-xf", downloaded_file, "-C", dest])
+        # Remove the tar file after extraction
+        os.remove(downloaded_file)
+    except Exception as e:
+        print(f"Error extracting file: {e}")
+    
+    print("Total process took: ", time.time() - start)
 
 def create_cache_dirs():
     """Create all necessary cache directories"""
@@ -151,7 +165,10 @@ def install_detector_packages():
 
 def main():
     try:
-        print("Creating cache directories...")
+        print("Installing system requirements...")
+        install_requirements()
+
+        print("\nCreating cache directories...")
         create_cache_dirs()
 
         print("\nDownloading main model...")
