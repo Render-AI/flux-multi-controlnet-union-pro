@@ -16,12 +16,9 @@ LORA_CACHE = "lora_cache"
 class Predictor(BasePredictor):
     def setup(self) -> None:
         # Initialize detectors directly (they're installed via pip)
-        self.canny_detector = CannyDetector()
+        self.canny_detector = CannyDetector()  # CannyDetector doesn't use from_pretrained
         self.depth_detector = MidasDetector.from_pretrained("lllyasviel/ControlNet")
         self.lineart_detector = LineartDetector.from_pretrained("lllyasviel/Annotators")
-        
-        # Initialize controlnet models dict
-        self.controlnet_models = {}
         
         # Initialize with two default ControlNets from cache
         controlnet = FluxMultiControlNetModel([
@@ -49,7 +46,6 @@ class Predictor(BasePredictor):
             ("realism", "realism")
         ]:
             lora_dir = os.path.join(LORA_CACHE, name)
-            # Get the first .safetensors file in the directory
             lora_files = [f for f in os.listdir(lora_dir) if f.endswith('.safetensors')]
             if lora_files:
                 lora_path = os.path.join(lora_dir, lora_files[0])
