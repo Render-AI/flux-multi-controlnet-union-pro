@@ -12,7 +12,7 @@ from diffusers import (
 from controlnet_aux import CannyDetector, MidasDetector, LineartDetector
 from huggingface_hub import hf_hub_download
 
-MODEL_CACHE = "FLUX.1-dev"
+MODEL_CACHE = "FLUX.1-dev/FLUX.1-dev"
 MODEL_NAME = 'black-forest-labs/FLUX.1-dev'
 CONTROLNET_CACHE = "controlnet_cache"
 LORA_CACHE = "lora_cache"
