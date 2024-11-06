@@ -9,7 +9,13 @@ from diffusers import (
     FluxControlNetModel,
     FluxMultiControlNetModel
 )
-from controlnet_aux import CannyDetector, MidasDetector, LineartDetector
+from controlnet_aux import (
+    CannyDetector, 
+    MidasDetector, 
+    LineartDetector,
+    HEDdetector,
+    MLSDdetector
+)
 from huggingface_hub import hf_hub_download
 
 MODEL_CACHE = "FLUX.1-dev/FLUX.1-dev"
@@ -20,33 +26,41 @@ DETECTOR_CACHE = "detector_cache"
 
 MODEL_URL = "https://weights.replicate.delivery/default/black-forest-labs/FLUX.1-dev/files.tar"
 
-
 class Predictor(BasePredictor):
-
     def setup(self) -> None:
         """Initialize all models and detectors during setup"""
         # Initialize detectors
         self.canny_detector = CannyDetector()
-        self.depth_detector = MidasDetector.from_pretrained("lllyasviel/ControlNet")
-        self.lineart_detector = LineartDetector.from_pretrained("lllyasviel/Annotators")
+        self.depth_detector = MidasDetector.from_pretrained("lllyasviel/ControlNet", cache_dir=DETECTOR_CACHE)
+        self.lineart_detector = LineartDetector.from_pretrained("lllyasviel/Annotators", cache_dir=DETECTOR_CACHE)
+        self.hed_detector = HEDdetector.from_pretrained("lllyasviel/Annotators", cache_dir=DETECTOR_CACHE)
+        self.mlsd_detector = MLSDdetector.from_pretrained("lllyasviel/Annotators", cache_dir=DETECTOR_CACHE)
         
         # Initialize all controlnet models
+        print("Loading all controlnet models...")
         self.controlnet_models = {}
-        for model_type in ["canny", "depth", "lineart", "upscaler"]:
+        model_types = ["canny", "depth", "lineart", "upscaler"]
+        
+        for model_type in model_types:
             print(f"Loading {model_type} controlnet...")
             self.controlnet_models[model_type] = FluxControlNetModel.from_pretrained(
                 os.path.join(CONTROLNET_CACHE, model_type),
                 torch_dtype=torch.float16
             ).to("cuda")
         
-        # Initialize pipeline with a default controlnet (we'll swap it during prediction)
+        # Initialize with all ControlNets
+        controlnet = FluxMultiControlNetModel([
+            self.controlnet_models[model_type] for model_type in model_types
+        ])
+
+        # Initialize pipeline
         self.pipe = FluxControlNetPipeline.from_pretrained(
             MODEL_CACHE,
-            controlnet=self.controlnet_models["canny"],  # Just temporary, will be swapped
+            controlnet=controlnet,
             torch_dtype=torch.float16
         ).to("cuda")
 
-        # Load LoRA weights
+        # Load LoRA weights from cache
         for name, adapter_name in [
             ("hyperflex", "hyperflex"),
             ("add_details", "add_details"),
@@ -67,108 +81,127 @@ class Predictor(BasePredictor):
             raise ValueError(f"Unknown controlnet type: {model_type}")
         return self.controlnet_models[model_type]
 
-
-    def process_image(self, image: Image.Image, controlnet_type: str) -> Image.Image:
-        """Process the input image based on the controlnet type."""
-        if controlnet_type == "canny":
+    def process_image(self, image: Image.Image, detector_type: str) -> Image.Image:
+        """Process the input image based on the detector type."""
+        if detector_type == "canny":
             return self.canny_detector(image)
-        elif controlnet_type == "depth":
+        elif detector_type == "depth":
             return self.depth_detector(image)
-        elif controlnet_type == "lineart":
+        elif detector_type == "lineart":
             return self.lineart_detector(image)
-        elif controlnet_type == "upscaler":
+        elif detector_type == "hed":
+            return self.hed_detector(image)
+        elif detector_type == "mlsd":
+            return self.mlsd_detector(image)
+        elif detector_type == "upscaler":
             return image
         else:
-            raise ValueError(f"Unknown controlnet type: {controlnet_type}")
+            raise ValueError(f"Unknown detector type: {detector_type}")
 
     def predict(
         self,
         prompt: str = Input(
-            description="The text prompt that guides image generation. Be detailed and specific about the image you want to create. Include style, mood, colors, and specific details.",
+            description="The text prompt that guides image generation",
             default="A girl in city, 25 years old, cool, futuristic style"
         ),
         canny_image: Path = Input(
-            description="Input image for edge detection control. The Canny ControlNet will use the edges detected in this image to guide the generation. Best for preserving structural elements and outlines.",
+            description="Input image for Canny ControlNet",
             default=None
         ),
         depth_image: Path = Input(
-            description="Input image for depth control. The Depth ControlNet will preserve the spatial relationships and 3D structure of this image in the generated result. Excellent for maintaining perspective and spatial layout.",
+            description="Input image for Depth ControlNet",
             default=None
         ),
         lineart_image: Path = Input(
-            description="Input image for line art control. The Lineart ControlNet will follow the artistic lines and sketches in this image. Perfect for turning sketches into detailed artwork while maintaining the original composition.",
+            description="Input image for Lineart ControlNet",
             default=None
         ),
         upscaler_image: Path = Input(
-            description="Input image for upscaling control. The Upscaler ControlNet will enhance and improve the resolution of this image while maintaining its core details and structure. Ideal for improving image quality and adding details.",
+            description="Input image for Upscaler ControlNet",
             default=None
         ),
+        # Detector choices for each ControlNet
+        canny_detector_type: str = Input(
+            description="Detector type to use with Canny ControlNet",
+            default="canny",
+            choices=["canny", "mlsd", "hed", "lineart"]
+        ),
+        depth_detector_type: str = Input(
+            description="Detector type to use with Depth ControlNet",
+            default="depth",
+            choices=["depth", "canny", "mlsd", "hed", "lineart"]
+        ),
+        lineart_detector_type: str = Input(
+            description="Detector type to use with Lineart ControlNet",
+            default="lineart",
+            choices=["lineart", "canny", "mlsd", "hed"]
+        ),
         canny_strength: float = Input(
-            description="Controls how strongly the edge detection influences the final image. Higher values (closer to 2.0) follow edge guidance more strictly, lower values (closer to 0) allow more creative freedom.",
+            description="Strength for Canny ControlNet",
             default=0.6,
             ge=0,
             le=2
         ),
         depth_strength: float = Input(
-            description="Determines how strictly the depth information influences the generation. Higher values preserve spatial relationships more faithfully, lower values allow more artistic interpretation.",
+            description="Strength for Depth ControlNet",
             default=0.6,
             ge=0,
             le=2
         ),
         lineart_strength: float = Input(
-            description="Controls how closely the generated image follows the input line art. Higher values stick closer to the original lines, lower values allow more artistic freedom while maintaining basic composition.",
+            description="Strength for Lineart ControlNet",
             default=0.6,
             ge=0,
             le=2
         ),
         upscaler_strength: float = Input(
-            description="Determines how much the upscaler influences the final result. Higher values preserve more details from the original image, lower values allow more creative reinterpretation while upscaling.",
+            description="Strength for Upscaler ControlNet",
             default=0.6,
             ge=0,
             le=2
         ),
         guidance_scale: float = Input(
-            description="Controls how closely the image follows the prompt. Higher values (7-20) result in images that more strictly follow the prompt but may be less natural. Lower values (1-7) allow more creative freedom but may stray from the prompt.",
+            description="Controls how closely the image follows the prompt",
             default=3.5,
             ge=0,
             le=20
         ),
         steps: int = Input(
-            description="Number of denoising steps. More steps generally result in higher quality images but take longer to generate. 8-15 steps for quick results, 20-50 for higher quality. Diminishing returns after 30 steps.",
+            description="Number of denoising steps",
             default=8,
             ge=1,
             le=50
         ),
         seed: int = Input(
-            description="Random seed for reproducible results. Using the same seed with identical parameters will generate the same image. Leave as None for random results.",
+            description="Random seed for reproducibility",
             default=None
         ),
         hyperflex_lora_weight: float = Input(
-            description="Weight of the HyperFlex LoRA adaptation. Higher values enhance the model's flexibility in interpreting prompts. Recommended range 0.1-0.3 for balanced results.",
+            description="Weight of the HyperFlex LoRA adaptation",
             default=0.125,
             ge=0,
             le=1
         ),
         add_details_lora_weight: float = Input(
-            description="Weight of the Add Details LoRA adaptation. Higher values enhance fine details and textures in the generated image. Recommended range 0.2-0.5 for enhanced detail.",
+            description="Weight of the Add Details LoRA adaptation",
             default=0,
             ge=0,
             le=1
         ),
         realism_lora_weight: float = Input(
-            description="Weight of the Realism LoRA adaptation. Higher values enhance photorealistic qualities in the generated image. Recommended range 0.3-0.7 for balanced realism.",
+            description="Weight of the Realism LoRA adaptation",
             default=0,
             ge=0,
             le=1
         ),
         widthh: int = Input(
-            description="Output image width in pixels. Must be divisible by 8. Higher values create wider images but require more memory. Set to 0 to use input image width. Recommended: 512-1024 for optimal quality.",
+            description="Output image width in pixels",
             default=0,
             ge=0,
             le=5000
         ),
         heightt: int = Input(
-            description="Output image height in pixels. Must be divisible by 8. Higher values create taller images but require more memory. Set to 0 to use input image height. Recommended: 512-1024 for optimal quality.",
+            description="Output image height in pixels",
             default=0,
             ge=0,
             le=5000
@@ -185,31 +218,61 @@ class Predictor(BasePredictor):
         control_strengths = []
         reference_size = None
 
+        # Configure image processing with detector types
         image_configs = [
-            (upscaler_image, "upscaler", upscaler_strength),
-            (lineart_image, "lineart", lineart_strength),
-            (canny_image, "canny", canny_strength),
-            (depth_image, "depth", depth_strength),
+            (upscaler_image, "upscaler", upscaler_strength, None),  # Upscaler doesn't use a detector
+            (lineart_image, "lineart", lineart_strength, lineart_detector_type),
+            (canny_image, "canny", canny_strength, canny_detector_type),
+            (depth_image, "depth", depth_strength, depth_detector_type),
         ]
 
-        for img_path, controlnet_type, strength in image_configs:
+        # First, determine reference size from the first available image
+        for img_path, _, _, _ in image_configs:
             if img_path:
                 img = Image.open(img_path)
-                if reference_size is None:
-                    width, height = img.size
-                    reference_size = (width // 8 * 8, height // 8 * 8)
-                img = img.resize(reference_size)
+                width = (img.width // 16) * 16
+                height = (img.height // 16) * 16
+                reference_size = (width, height)
+                print(f"Reference size set to: {reference_size}")
+                break
+
+        if reference_size is None:
+            raise ValueError("At least one image must be provided")
+
+        # Process images with chosen detector types
+        for img_path, controlnet_type, strength, detector_type in image_configs:
+            if img_path:
+                img = Image.open(img_path)
+                img = img.resize(reference_size, Image.LANCZOS)
                 
-                processed_image = self.process_image(img, controlnet_type)
+                if controlnet_type == "upscaler":
+                    processed_image = img  # No detection for upscaler
+                else:
+                    processed_image = self.process_image(img, detector_type)
+                
                 control_images.append(processed_image)
                 active_controlnets.append(self.controlnet_models[controlnet_type])
                 control_strengths.append(strength)
+                print(f"Processed {controlnet_type} image" + 
+                      (f" using {detector_type} detector" if detector_type else ""))
 
         if not control_images:
             raise ValueError("At least one control image must be provided")
 
+        # Handle custom dimensions
+        final_width = reference_size[0]
+        final_height = reference_size[1]
+        
+        if widthh != 0:
+            final_width = (widthh // 16) * 16
+            print(f"Using custom width: {final_width}")
+        if heightt != 0:
+            final_height = (heightt // 16) * 16
+            print(f"Using custom height: {final_height}")
+
         # Update MultiControlNet with active controlnets
         self.pipe.controlnet = FluxMultiControlNetModel(active_controlnets)
+        print(f"Active controlnets: {len(active_controlnets)}")
 
         # Handle LoRA weights
         lora_weights = []
@@ -230,14 +293,15 @@ class Predictor(BasePredictor):
         if loras:
             self.pipe.set_adapters(loras, adapter_weights=lora_weights)
             self.pipe.fuse_lora(adapter_names=loras)
+            print(f"Active LoRAs: {loras} with weights: {lora_weights}")
 
         # Generate image
         generated_image = self.pipe(
             prompt,
             control_image=[control_images[0]] if len(control_images) == 1 else control_images,
             controlnet_conditioning_scale=[control_strengths[0]] if len(control_strengths) == 1 else control_strengths,
-            width=reference_size[0] if widthh == 0 else widthh,
-            height=reference_size[1] if heightt == 0 else heightt,
+            width=final_width,
+            height=final_height,
             num_inference_steps=steps,
             guidance_scale=guidance_scale,
             generator=generator
@@ -248,5 +312,5 @@ class Predictor(BasePredictor):
 
         output_path = f"/tmp/output.png"
         generated_image.save(output_path)
+        print(f"Generation complete. Output saved to: {output_path}")
         return Path(output_path)
-    
