@@ -31,7 +31,7 @@ class Predictor(BasePredictor):
         """Initialize all models and detectors during setup"""
         # Initialize detectors
         self.canny_detector = CannyDetector()
-        self.depth_detector = MidasDetector.from_pretrained("lllyasviel/ControlNet", cache_dir=DETECTOR_CACHE)
+        self.depth_detector = MidasDetector.from_pretrained("lllyasviel/Annotators", cache_dir=DETECTOR_CACHE)
         self.lineart_detector = LineartDetector.from_pretrained("lllyasviel/Annotators", cache_dir=DETECTOR_CACHE)
         self.hed_detector = HEDdetector.from_pretrained("lllyasviel/Annotators", cache_dir=DETECTOR_CACHE)
         self.mlsd_detector = MLSDdetector.from_pretrained("lllyasviel/Annotators", cache_dir=DETECTOR_CACHE)

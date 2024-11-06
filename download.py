@@ -53,18 +53,10 @@ DETECTORS = {
     "annotators": {
         "repo": "lllyasviel/Annotators",
         "files": {
-            "hed": ["hed.pth", "ControlNetHED.pth"],
-            "mlsd": ["mlsd_large_512_fp32.pth", "mlsd.pth"],
+            "hed": ["network-bsds500.pth", "ControlNetHED.pth"],
+            "mlsd": ["mlsd_large_512_fp32.pth"], 
             "lineart": ["sk_model.pth", "sk_model2.pth"],
-            "binary": ["dpt_hybrid-midas-501f0c75.pt"]
-        }
-    },
-    "controlnet": {
-        "repo": "lllyasviel/ControlNet",
-        "files": {
             "midas": ["dpt_hybrid-midas-501f0c75.pt"],
-            "hed": ["ControlNetHED.pth"],
-            "mlsd": ["mlsd_large_512_fp32.pth"]
         }
     }
 }
