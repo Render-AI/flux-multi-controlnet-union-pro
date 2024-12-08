@@ -20,6 +20,7 @@ from controlnet_aux import (
 from huggingface_hub import hf_hub_download
 from torchao.quantization import quantize_, int8_weight_only
 from sd_embed.embedding_funcs import get_weighted_text_embeddings_flux1
+import numpy as np
 
 MODEL_CACHE = "FLUX.1-dev/FLUX.1-dev"
 MODEL_NAME = 'black-forest-labs/FLUX.1-dev'
@@ -78,6 +79,11 @@ class Predictor(BasePredictor):
             scheduler=shared_components.get("scheduler"),
             torch_dtype=torch.float16
         ).to("cuda")
+
+        # Initialize auto mask generator if needed
+        if not hasattr(self, 'auto_mask_generator'):
+            from auto_mask import AutoMaskGenerator
+            self.auto_mask_generator = AutoMaskGenerator()
 
         # Load LoRA weights from cache
         for name, adapter_name in [
@@ -183,7 +189,7 @@ class Predictor(BasePredictor):
             description="Controls how closely the image follows the prompt",
             default=3.5,
             ge=0,
-            le=20
+            le=50
         ),
         steps: int = Input(
             description="Number of denoising steps",
@@ -198,19 +204,16 @@ class Predictor(BasePredictor):
         hyperflex_lora_weight: float = Input(
             description="Weight of the HyperFlex LoRA adaptation",
             default=0.125,
-            ge=0,
             le=1
         ),
         add_details_lora_weight: float = Input(
             description="Weight of the Add Details LoRA adaptation",
             default=0,
-            ge=0,
             le=1
         ),
         realism_lora_weight: float = Input(
             description="Weight of the Realism LoRA adaptation",
             default=0,
-            ge=0,
             le=1
         ),
         widthh: int = Input(
@@ -258,6 +261,30 @@ class Predictor(BasePredictor):
         ),
         use_weighted_embeddings: bool = Input(
             description="Whether to use weighted text embeddings",
+            default=False
+        ),
+        auto_mask: bool = Input(
+            description="Whether to use automatic masking",
+            default=False
+        ),
+        auto_mask_prompt: str = Input(
+            description="Text prompt for automatic object detection and masking",
+            default=None
+        ),
+        auto_mask_box_threshold: float = Input(
+            description="Box threshold for automatic masking",
+            default=0.3,
+            ge=0,
+            le=1
+        ),
+        auto_mask_text_threshold: float = Input(
+            description="Text threshold for automatic masking",
+            default=0.25,
+            ge=0,
+            le=1
+        ),
+        use_background_mask: bool = Input(
+            description="Whether to use background mask instead of object mask",
             default=False
         ),
     ) -> Path:
@@ -362,6 +389,22 @@ class Predictor(BasePredictor):
             'guidance_scale': guidance_scale,
             'generator': generator
         }
+
+        if auto_mask and auto_mask_prompt and image:
+            # Generate masks using auto masking
+            object_mask, background_mask = self.auto_mask_generator.generate_masks(
+                image_path=str(image),
+                text_prompt=auto_mask_prompt,
+                box_threshold=auto_mask_box_threshold,
+                text_threshold=auto_mask_text_threshold
+            )
+            
+            # Use the appropriate mask based on user preference
+            mask_image = background_mask if use_background_mask else object_mask
+
+            # Convert to PIL Image if needed
+            if isinstance(mask_image, np.ndarray):
+                mask_image = Image.fromarray(mask_image)
 
         # Add inpainting-specific parameters if needed
         if mask_image is not None:

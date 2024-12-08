@@ -11,6 +11,7 @@ MODEL_URL = "https://weights.replicate.delivery/default/black-forest-labs/FLUX.1
 CONTROLNET_CACHE = "controlnet_cache"
 LORA_CACHE = "lora_cache"
 DETECTOR_CACHE = "detector_cache"
+AUTO_MASK_CACHE = "auto_mask_cache"
 
 # ControlNets
 CONTROLNETS = {
@@ -58,6 +59,20 @@ DETECTORS = {
             "lineart": ["sk_model.pth", "sk_model2.pth"],
             "midas": ["dpt_hybrid-midas-501f0c75.pt"],
         }
+    }
+}
+
+AUTO_MASK_MODELS = {
+    "sam": {
+        "repo": "facebook/sam-vit-huge",
+        "files": ["sam_vit_h_4b8939.pth"]
+    },
+    "groundingdino": {
+        "repo": "ShilongLiu/GroundingDINO",
+        "files": [
+            "GroundingDINO_SwinB.cfg.py",
+            "groundingdino_swinb_cogcoor.pth"
+        ]
     }
 }
 
@@ -181,7 +196,7 @@ def download_weights(url, dest):
 
 def create_cache_dirs():
     """Create all necessary cache directories"""
-    for dir_path in [MODEL_CACHE, CONTROLNET_CACHE, LORA_CACHE, DETECTOR_CACHE]:
+    for dir_path in [MODEL_CACHE, CONTROLNET_CACHE, LORA_CACHE, DETECTOR_CACHE, AUTO_MASK_CACHE]:
         if not os.path.exists(dir_path):
             os.makedirs(dir_path)
     
@@ -195,6 +210,35 @@ def create_cache_dirs():
     for detector_group in DETECTORS.values():
         for detector_type in detector_group["files"].keys():
             os.makedirs(os.path.join(DETECTOR_CACHE, detector_type), exist_ok=True)
+    
+    # Create auto mask subdirectories
+    for model in AUTO_MASK_MODELS.keys():
+        os.makedirs(os.path.join(AUTO_MASK_CACHE, model), exist_ok=True)
+
+def download_auto_mask_models():
+    """Download SAM and GroundingDINO models"""
+    print("\nDownloading auto mask models...")
+    for name, config in AUTO_MASK_MODELS.items():
+        print(f"\nDownloading {name} model files from {config['repo']}")
+        cache_dir = os.path.join(AUTO_MASK_CACHE, name)
+        
+        expected_files = set(config['files'])
+        existing_files = set(os.listdir(cache_dir)) if os.path.exists(cache_dir) else set()
+        missing_files = expected_files - existing_files
+
+        if missing_files or is_folder_empty(cache_dir):
+            for file in config['files']:
+                try:
+                    hf_hub_download(
+                        repo_id=config['repo'],
+                        filename=file,
+                        local_dir=cache_dir
+                    )
+                    print(f"Downloaded {file} for {name}")
+                except Exception as e:
+                    print(f"Error downloading {file} for {name}: {e}")
+        else:
+            print(f"{name} model files already exist, skipping download")
 
 def download_main_model():
     """Download main Flux model"""
@@ -296,6 +340,9 @@ def main():
 
         print("\nCreating cache directories...")
         create_cache_dirs()
+
+        print("\nDownloading auto mask models...")
+        download_auto_mask_models()
 
         print("\nDownloading main model...")
         download_main_model()
