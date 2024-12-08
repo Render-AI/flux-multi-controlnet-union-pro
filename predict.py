@@ -57,26 +57,27 @@ class Predictor(BasePredictor):
             self.controlnet_models[model_type] for model_type in model_types
         ])
 
-        # Load shared components from cache
-        print("Loading shared components...")
-        shared_components = {}
-        for component in ["vae", "text_encoder", "tokenizer", "text_encoder_2", "tokenizer_2", "transformer"]:
-            shared_components[component] = torch.load(os.path.join(MODEL_CACHE, component))
-        
-        quantize_(shared_components["transformer"], int8_weight_only())
-
-        # Initialize both pipelines with shared components
-        self.pipe = FluxControlNetPipeline(
-            **shared_components,
+        print("Loading main pipeline...")
+        self.pipe = FluxControlNetPipeline.from_pretrained(
+            MODEL_CACHE,
             controlnet=controlnet,
-            scheduler=shared_components.get("scheduler"),
             torch_dtype=torch.float16
         ).to("cuda")
 
+        # Quantize transformer
+        quantize_(self.pipe.transformer, int8_weight_only())
+
+        # Create inpaint pipe and copy components
+        print("Creating inpaint pipeline...")
         self.inpaint_pipe = FluxControlNetInpaintPipeline(
-            **shared_components,
+            vae=self.pipe.vae,
+            text_encoder=self.pipe.text_encoder,
+            tokenizer=self.pipe.tokenizer, 
+            text_encoder_2=self.pipe.text_encoder_2,
+            tokenizer_2=self.pipe.tokenizer_2,
+            transformer=self.pipe.transformer,
             controlnet=controlnet,
-            scheduler=shared_components.get("scheduler"),
+            scheduler=self.pipe.scheduler,
             torch_dtype=torch.float16
         ).to("cuda")
 
@@ -85,7 +86,7 @@ class Predictor(BasePredictor):
             from auto_mask import AutoMaskGenerator
             self.auto_mask_generator = AutoMaskGenerator()
 
-        # Load LoRA weights from cache
+        print("Loading LoRA weights...")
         for name, adapter_name in [
             ("hyperflex", "hyperflex"),
             ("add_details", "add_details"),
@@ -95,7 +96,14 @@ class Predictor(BasePredictor):
             lora_files = [f for f in os.listdir(lora_dir) if f.endswith('.safetensors')]
             if lora_files:
                 lora_path = os.path.join(lora_dir, lora_files[0])
+                print(f"Loading {name} LoRA...")
+                # Load for main pipeline
                 self.pipe.load_lora_weights(
+                    lora_path,
+                    adapter_name=adapter_name
+                )
+                # Load for inpainting pipeline
+                self.inpaint_pipe.load_lora_weights(
                     lora_path,
                     adapter_name=adapter_name
                 )
@@ -371,11 +379,6 @@ class Predictor(BasePredictor):
             lora_weights.append(realism_lora_weight)
             loras.append("realism")
 
-        if loras:
-            self.pipe.set_adapters(loras, adapter_weights=lora_weights)
-            self.pipe.fuse_lora(adapter_names=loras)
-            print(f"Active LoRAs: {loras} with weights: {lora_weights}")
-
         
         # Prepare common generation parameters
         generation_params = {
@@ -443,10 +446,15 @@ class Predictor(BasePredictor):
         else:
             generation_params['prompt'] = prompt
         
+        if loras:
+            selected_pipe.set_adapters(loras, adapter_weights=lora_weights)
+            selected_pipe.fuse_lora(adapter_names=loras)
+            print(f"Active LoRAs: {loras} with weights: {lora_weights}")
+        
         generated_image = selected_pipe(**generation_params).images[0]
         
         if loras:
-            self.pipe.unfuse_lora()
+            selected_pipe.unfuse_lora()
 
         output_path = f"/tmp/output.png"
         generated_image.save(output_path)
