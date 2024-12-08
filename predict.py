@@ -7,7 +7,8 @@ from PIL import Image
 from diffusers import (
     FluxControlNetPipeline,
     FluxControlNetModel,
-    FluxMultiControlNetModel
+    FluxMultiControlNetModel,
+    FluxControlNetInpaintPipeline
 )
 from controlnet_aux import (
     CannyDetector, 
@@ -17,6 +18,8 @@ from controlnet_aux import (
     MLSDdetector
 )
 from huggingface_hub import hf_hub_download
+from torchao.quantization import quantize_, int8_weight_only
+from sd_embed.embedding_funcs import get_weighted_text_embeddings_flux1
 
 MODEL_CACHE = "FLUX.1-dev/FLUX.1-dev"
 MODEL_NAME = 'black-forest-labs/FLUX.1-dev'
@@ -53,10 +56,26 @@ class Predictor(BasePredictor):
             self.controlnet_models[model_type] for model_type in model_types
         ])
 
-        # Initialize pipeline
-        self.pipe = FluxControlNetPipeline.from_pretrained(
-            MODEL_CACHE,
+        # Load shared components from cache
+        print("Loading shared components...")
+        shared_components = {}
+        for component in ["vae", "text_encoder", "tokenizer", "text_encoder_2", "tokenizer_2", "transformer"]:
+            shared_components[component] = torch.load(os.path.join(MODEL_CACHE, component))
+        
+        quantize_(shared_components["transformer"], int8_weight_only())
+
+        # Initialize both pipelines with shared components
+        self.pipe = FluxControlNetPipeline(
+            **shared_components,
             controlnet=controlnet,
+            scheduler=shared_components.get("scheduler"),
+            torch_dtype=torch.float16
+        ).to("cuda")
+
+        self.inpaint_pipe = FluxControlNetInpaintPipeline(
+            **shared_components,
+            controlnet=controlnet,
+            scheduler=shared_components.get("scheduler"),
             torch_dtype=torch.float16
         ).to("cuda")
 
@@ -206,6 +225,41 @@ class Predictor(BasePredictor):
             ge=0,
             le=5000
         ),
+
+        image: Path = Input(
+            description="Input image for inpainting",
+            default=None
+        ),
+        mask_image: Path = Input(
+            description="Mask image for inpainting (white pixels will be repainted)",
+            default=None
+        ),
+        strength: float = Input(
+            description="Strength of inpainting (how much to repaint masked area)",
+            default=0.6,
+            ge=0,
+            le=1
+        ),
+        padding_mask_crop: int = Input(
+            description="Size of padding when cropping the mask",
+            default=None
+        ),
+        control_guidance_start: float = Input(
+            description="Percentage of steps at which ControlNet starts applying",
+            default=0.0,
+            ge=0.0,
+            le=1.0
+        ),
+        control_guidance_end: float = Input(
+            description="Percentage of steps at which ControlNet stops applying",
+            default=1.0,
+            ge=0.0,
+            le=1.0
+        ),
+        use_weighted_embeddings: bool = Input(
+            description="Whether to use weighted text embeddings",
+            default=False
+        ),
     ) -> Path:
         if seed is None:
             seed = int.from_bytes(os.urandom(2), "big")
@@ -295,18 +349,59 @@ class Predictor(BasePredictor):
             self.pipe.fuse_lora(adapter_names=loras)
             print(f"Active LoRAs: {loras} with weights: {lora_weights}")
 
-        # Generate image
-        generated_image = self.pipe(
-            prompt,
-            control_image=[control_images[0]] if len(control_images) == 1 else control_images,
-            controlnet_conditioning_scale=[control_strengths[0]] if len(control_strengths) == 1 else control_strengths,
-            width=final_width,
-            height=final_height,
-            num_inference_steps=steps,
-            guidance_scale=guidance_scale,
-            generator=generator
-        ).images[0]
+        
+        # Prepare common generation parameters
+        generation_params = {
+            'control_image': [control_images[0]] if len(control_images) == 1 else control_images,
+            'controlnet_conditioning_scale': [control_strengths[0]] if len(control_strengths) == 1 else control_strengths,
+            'width': final_width,
+            'height': final_height,
+            'control_guidance_start': control_guidance_start,
+            'control_guidance_end': control_guidance_end,
+            'num_inference_steps': steps,
+            'guidance_scale': guidance_scale,
+            'generator': generator
+        }
 
+        # Add inpainting-specific parameters if needed
+        if mask_image is not None:
+            if image is None:
+                raise ValueError("Inpainting requires both image and mask_image")
+                
+            # Open and process the input image and mask
+            init_image = Image.open(image)
+            mask = Image.open(mask_image)
+            
+            # Resize if needed
+            if widthh != 0 or heightt != 0:
+                init_image = init_image.resize((final_width, final_height), Image.LANCZOS)
+                mask = mask.resize((final_width, final_height), Image.LANCZOS)
+
+            generation_params.update({
+                'image': init_image,
+                'mask_image': mask,
+                'strength': strength,
+                'padding_mask_crop': padding_mask_crop
+            })
+            selected_pipe = self.inpaint_pipe
+        else:
+            selected_pipe = self.pipe
+
+        # Add prompt or embeddings
+        if use_weighted_embeddings:
+            prompt_embeds, pooled_prompt_embeds = get_weighted_text_embeddings_flux1(
+                pipe=self.pipe,
+                prompt=prompt
+            )
+            generation_params.update({
+                'prompt_embeds': prompt_embeds,
+                'pooled_prompt_embeds': pooled_prompt_embeds
+            })
+        else:
+            generation_params['prompt'] = prompt
+        
+        generated_image = selected_pipe(**generation_params).images[0]
+        
         if loras:
             self.pipe.unfuse_lora()
 
@@ -314,3 +409,5 @@ class Predictor(BasePredictor):
         generated_image.save(output_path)
         print(f"Generation complete. Output saved to: {output_path}")
         return Path(output_path)
+    
+

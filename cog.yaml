@@ -22,6 +22,8 @@ build:
     - "numpy<2"
     - "protobuf"
     - "controlnet-aux==0.0.3"
+    - "torchao"
+    - "git+https://github.com/xhinker/sd_embed.git@main"
     
   run:
     - curl -o /usr/local/bin/pget -L "https://github.com/replicate/pget/releases/latest/download/pget_$(uname -s)_$(uname -m)" && chmod +x /usr/local/bin/pget
