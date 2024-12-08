@@ -35,7 +35,7 @@ class AutoMaskGenerator:
     def _initialize_sam(self):
         """Initialize SAM model from cache"""
         model_start = time.time()
-        sam_checkpoint = os.path.join(AUTO_MASK_CACHE, "sam", "sam_vit_h_4b8939.pth")
+        sam_checkpoint = os.path.join(AUTO_MASK_CACHE, "sam", "pytorch_model.bin")  # or "model.safetensors"
         
         if not os.path.exists(sam_checkpoint):
             raise RuntimeError(f"SAM model not found in cache: {sam_checkpoint}")

@@ -65,7 +65,7 @@ DETECTORS = {
 AUTO_MASK_MODELS = {
     "sam": {
         "repo": "facebook/sam-vit-huge",
-        "files": ["sam_vit_h_4b8939.pth"]
+        "files": ["pytorch_model.bin"]  # or ["model.safetensors"]
     },
     "groundingdino": {
         "repo": "ShilongLiu/GroundingDINO",
