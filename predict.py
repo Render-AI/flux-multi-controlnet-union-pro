@@ -69,17 +69,27 @@ class Predictor(BasePredictor):
 
         # Create inpaint pipe and copy components
         print("Creating inpaint pipeline...")
-        self.inpaint_pipe = FluxControlNetInpaintPipeline(
-            vae=self.pipe.vae,
-            text_encoder=self.pipe.text_encoder,
-            tokenizer=self.pipe.tokenizer, 
-            text_encoder_2=self.pipe.text_encoder_2,
-            tokenizer_2=self.pipe.tokenizer_2,
-            transformer=self.pipe.transformer,
-            controlnet=controlnet,
-            scheduler=self.pipe.scheduler,
-            torch_dtype=torch.float16
-        ).to("cuda")
+        try:
+            self.inpaint_pipe = FluxControlNetInpaintPipeline(
+                vae=self.pipe.vae,
+                text_encoder=self.pipe.text_encoder,
+                tokenizer=self.pipe.tokenizer, 
+                text_encoder_2=self.pipe.text_encoder_2,
+                tokenizer_2=self.pipe.tokenizer_2,
+                transformer=self.pipe.transformer,
+                controlnet=controlnet,
+                scheduler=self.pipe.scheduler,
+            ).to("cuda")
+        except Exception as e:
+            print('error:', e)
+            for component in [
+                self.inpaint_pipe.vae,
+                self.inpaint_pipe.text_encoder,
+                self.inpaint_pipe.text_encoder_2,
+                self.inpaint_pipe.transformer
+            ]:
+                if hasattr(component, "to"):
+                    component.to(dtype=torch.float16)
 
         # Initialize auto mask generator if needed
         if not hasattr(self, 'auto_mask_generator'):
