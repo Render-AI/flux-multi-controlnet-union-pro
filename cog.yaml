@@ -27,7 +27,7 @@ build:
 
     - "git+https://github.com/IDEA-Research/GroundingDINO.git"
     - "git+https://github.com/facebookresearch/segment-anything.git"
-    - "supervision==0.18.0"  # For visualization utilities used with GroundingDINO
+    - "supervision==0.22.0"  # For visualization utilities used with GroundingDINO
     
   run:
     - curl -o /usr/local/bin/pget -L "https://github.com/replicate/pget/releases/latest/download/pget_$(uname -s)_$(uname -m)" && chmod +x /usr/local/bin/pget
