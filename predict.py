@@ -118,10 +118,10 @@ class Predictor(BasePredictor):
                     adapter_name=adapter_name
                 )
                 # Load for inpainting pipeline
-                self.inpaint_pipe.load_lora_weights(
-                    lora_path,
-                    adapter_name=adapter_name
-                )
+                # self.inpaint_pipe.load_lora_weights(
+                #     lora_path,
+                #     adapter_name=adapter_name
+                # )
 
     def get_controlnet_model(self, model_type: str) -> FluxControlNetModel:
         """Get a controlnet model from the pre-loaded models."""
