@@ -17,8 +17,8 @@ from controlnet_aux import (
     HEDdetector,
     MLSDdetector
 )
-from huggingface_hub import hf_hub_download
-from torchao.quantization import quantize_, int8_weight_only
+# from huggingface_hub import hf_hub_download
+# from torchao.quantization import quantize_, int8_weight_only
 from sd_embed.embedding_funcs import get_weighted_text_embeddings_flux1
 import numpy as np
 
@@ -65,7 +65,7 @@ class Predictor(BasePredictor):
         ).to("cuda")
 
         # Quantize transformer
-        quantize_(self.pipe.transformer, int8_weight_only())
+        # quantize_(self.pipe.transformer, int8_weight_only())
 
         # Create inpaint pipe and copy components
         print("Creating inpaint pipeline...")
