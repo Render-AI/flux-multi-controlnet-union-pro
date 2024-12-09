@@ -33,16 +33,15 @@ class AutoMaskGenerator:
         print(f"\nTotal initialization time: {time.time() - start_time:.2f} seconds")
 
     def _initialize_sam(self):
-        """Initialize SAM model from cache"""
-        model_start = time.time()
-        sam_checkpoint = os.path.join(AUTO_MASK_CACHE, "sam", "pytorch_model.bin")  # or "model.safetensors"
-        
-        if not os.path.exists(sam_checkpoint):
-            raise RuntimeError(f"SAM model not found in cache: {sam_checkpoint}")
-            
-        sam = build_sam(checkpoint=sam_checkpoint).to(self.device)
-        print(f"SAM model loading took {time.time() - model_start:.2f} seconds")
-        return SamPredictor(sam)
+        try:
+            sam_checkpoint = os.path.join(AUTO_MASK_CACHE, "sam", "sam_vit_h_4b8939.pth")
+            if not os.path.exists(sam_checkpoint):
+                raise FileNotFoundError(f"SAM checkpoint not found at {sam_checkpoint}")
+            sam = build_sam(checkpoint=sam_checkpoint)
+            sam.to(self.device)
+            return SamPredictor(sam)
+        except Exception as e:
+            print(f"Error initializing SAM model: {e}")
 
     def _initialize_groundingdino(self):
         """Initialize Grounding DINO model from cache"""

@@ -64,8 +64,8 @@ DETECTORS = {
 
 AUTO_MASK_MODELS = {
     "sam": {
-        "repo": "facebook/sam-vit-huge",
-        "files": ["pytorch_model.bin"]  # or ["model.safetensors"]
+        "url": "https://dl.fbaipublicfiles.com/segment_anything/sam_vit_h_4b8939.pth",
+        "filename": "sam_vit_h_4b8939.pth"
     },
     "groundingdino": {
         "repo": "ShilongLiu/GroundingDINO",
@@ -75,6 +75,49 @@ AUTO_MASK_MODELS = {
         ]
     }
 }
+
+def download_auto_mask_models():
+    """Download SAM and GroundingDINO models"""
+    print("\nDownloading auto mask models...")
+    
+    # Download SAM using wget
+    sam_dir = os.path.join(AUTO_MASK_CACHE, "sam")
+    os.makedirs(sam_dir, exist_ok=True)
+    sam_path = os.path.join(sam_dir, AUTO_MASK_MODELS["sam"]["filename"])
+    
+    if not os.path.exists(sam_path):
+        print("Downloading SAM model...")
+        try:
+            subprocess.check_call([
+                "wget",
+                "-O", sam_path,
+                AUTO_MASK_MODELS["sam"]["url"]
+            ])
+            print("SAM model downloaded successfully")
+        except Exception as e:
+            print(f"Error downloading SAM model: {e}")
+            if os.path.exists(sam_path):
+                os.remove(sam_path)
+            raise
+    else:
+        print("SAM model already exists, skipping download")
+
+    # Download GroundingDINO
+    print("\nDownloading GroundingDINO files...")
+    dino_config = AUTO_MASK_MODELS["groundingdino"]
+    dino_dir = os.path.join(AUTO_MASK_CACHE, "groundingdino")
+    os.makedirs(dino_dir, exist_ok=True)
+    
+    for file in dino_config["files"]:
+        try:
+            hf_hub_download(
+                repo_id=dino_config["repo"],
+                filename=file,
+                local_dir=dino_dir
+            )
+            print(f"Downloaded {file}")
+        except Exception as e:
+            print(f"Error downloading {file}: {e}")
 
 def is_folder_empty(folder_path):
     """Check if a folder is empty."""
@@ -215,30 +258,6 @@ def create_cache_dirs():
     for model in AUTO_MASK_MODELS.keys():
         os.makedirs(os.path.join(AUTO_MASK_CACHE, model), exist_ok=True)
 
-def download_auto_mask_models():
-    """Download SAM and GroundingDINO models"""
-    print("\nDownloading auto mask models...")
-    for name, config in AUTO_MASK_MODELS.items():
-        print(f"\nDownloading {name} model files from {config['repo']}")
-        cache_dir = os.path.join(AUTO_MASK_CACHE, name)
-        
-        expected_files = set(config['files'])
-        existing_files = set(os.listdir(cache_dir)) if os.path.exists(cache_dir) else set()
-        missing_files = expected_files - existing_files
-
-        if missing_files or is_folder_empty(cache_dir):
-            for file in config['files']:
-                try:
-                    hf_hub_download(
-                        repo_id=config['repo'],
-                        filename=file,
-                        local_dir=cache_dir
-                    )
-                    print(f"Downloaded {file} for {name}")
-                except Exception as e:
-                    print(f"Error downloading {file} for {name}: {e}")
-        else:
-            print(f"{name} model files already exist, skipping download")
 
 def download_main_model():
     """Download main Flux model"""

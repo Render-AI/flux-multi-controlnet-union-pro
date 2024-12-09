@@ -80,6 +80,7 @@ class Predictor(BasePredictor):
                 controlnet=controlnet,
                 scheduler=self.pipe.scheduler,
             ).to("cuda")
+            print("inpaint pipeline loaded")
         except Exception as e:
             print('error:', e)
             for component in [
@@ -91,10 +92,14 @@ class Predictor(BasePredictor):
                 if hasattr(component, "to"):
                     component.to(dtype=torch.float16)
 
-        # Initialize auto mask generator if needed
-        if not hasattr(self, 'auto_mask_generator'):
-            from auto_mask import AutoMaskGenerator
-            self.auto_mask_generator = AutoMaskGenerator()
+        try:
+            # Initialize auto mask generator if needed
+            if not hasattr(self, 'auto_mask_generator'):
+                from auto_mask import AutoMaskGenerator
+                self.auto_mask_generator = AutoMaskGenerator()
+                print("auto mask loaded")
+        except Exception as e:
+            print("error, ", e)
 
         print("Loading LoRA weights...")
         for name, adapter_name in [
