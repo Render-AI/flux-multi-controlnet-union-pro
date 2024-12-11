@@ -25,12 +25,21 @@ build:
     - "torchao"
     - "git+https://github.com/xhinker/sd_embed.git@main"
 
-    - "git+https://github.com/IDEA-Research/GroundingDINO.git"
+    # - "git+https://github.com/IDEA-Research/GroundingDINO.git"
+    # Install GroundingDINO with CUDA support
     - "git+https://github.com/facebookresearch/segment-anything.git"
     - "supervision==0.22.0"  # For visualization utilities used with GroundingDINO
-    
+
   run:
     - curl -o /usr/local/bin/pget -L "https://github.com/replicate/pget/releases/latest/download/pget_$(uname -s)_$(uname -m)" && chmod +x /usr/local/bin/pget
+    - 'export PATH=/usr/local/cuda/bin:$PATH 
+      && export CUDA_HOME=/usr/local/cuda 
+      && export LD_LIBRARY_PATH=/usr/local/cuda/lib64:$LD_LIBRARY_PATH 
+      && export TORCH_CUDA_ARCH_LIST="6.0;6.1;7.0;7.5;8.0;8.6+PTX;8.9;9.0" 
+      && git clone https://github.com/IDEA-Research/GroundingDINO.git 
+      && cd GroundingDINO && git checkout 60d796825e1266e56f7e4e9e00e88de662b67bd3
+      && pip install -e .'
+
     
 # predict.py defines how predictions are run on your model
 predict: "predict.py:Predictor"

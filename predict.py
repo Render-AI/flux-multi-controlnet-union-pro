@@ -374,8 +374,6 @@ class Predictor(BasePredictor):
             final_height = (heightt // 16) * 16
             print(f"Using custom height: {final_height}")
 
-        # Update MultiControlNet with active controlnets
-        self.pipe.controlnet = FluxMultiControlNetModel(active_controlnets)
         print(f"Active controlnets: {len(active_controlnets)}")
 
         # Handle LoRA weights
@@ -444,9 +442,15 @@ class Predictor(BasePredictor):
                 'strength': strength,
                 'padding_mask_crop': padding_mask_crop
             })
+            
+            multi_controlnet = FluxMultiControlNetModel(active_controlnets)
+            multi_controlnet.config = active_controlnets[0].config  # Add config from first controlnet
+            self.inpaint_pipe.controlnet = multi_controlnet
             selected_pipe = self.inpaint_pipe
         else:
+            self.pipe.controlnet = FluxMultiControlNetModel(active_controlnets)
             selected_pipe = self.pipe
+            
 
         # Add prompt or embeddings
         if use_weighted_embeddings:
